@@ -1,6 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "buildCommand": "pnpm --filter @repair/api prisma generate && pnpm --filter @repair/desktop build",
+  "buildCommand": "pnpm --filter @repair/domain build && pnpm --filter @repair/api prisma generate && pnpm --filter @repair/desktop build",
   "outputDirectory": "apps/desktop/dist",
   "installCommand": "pnpm install --frozen-lockfile"
 }
