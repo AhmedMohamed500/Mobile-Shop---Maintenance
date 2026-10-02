@@ -2,5 +2,11 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "buildCommand": "pnpm --filter @repair/domain build && pnpm --filter @repair/api prisma generate && pnpm --filter @repair/desktop build",
   "outputDirectory": "apps/desktop/dist",
-  "installCommand": "pnpm install --frozen-lockfile"
+  "installCommand": "pnpm install --frozen-lockfile",
+  "rewrites": [
+    {
+      "source": "/api/:path*",
+      "destination": "/api?__path=:path*"
+    }
+  ]
 }

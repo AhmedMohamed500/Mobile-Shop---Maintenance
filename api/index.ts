@@ -8,6 +8,10 @@ const appPromise = import("../apps/api/src/app.js").then(async ({ buildApp }) =>
 
 export default async function handler(request: IncomingMessage, response: ServerResponse) {
   const app = await appPromise;
-  request.url = request.url?.replace(/^\/api/, "") || "/";
+  const incomingUrl = new URL(request.url || "/", "http://vercel.local");
+  const forwardedPath = incomingUrl.searchParams.get("__path") || "";
+  incomingUrl.searchParams.delete("__path");
+  const query = incomingUrl.searchParams.toString();
+  request.url = `/${forwardedPath}${query ? `?${query}` : ""}`;
   app.server.emit("request", request, response);
 }
