@@ -21,22 +21,80 @@ const intakeSchema = z.object({
 
 export function buildApp(prisma = new PrismaClient()) {
   const app = Fastify({ logger: true, bodyLimit: 2_000_000 });
-  app.register(cors, { origin: true });
+  const allowedOrigins = new Set(config.CORS_ORIGINS.split(",").map((origin) => origin.trim()).filter(Boolean));
+  app.register(cors, {
+    origin(origin, callback) {
+      callback(null, !origin || allowedOrigins.has(origin));
+    },
+  });
 
-  app.setErrorHandler((error, _request, reply) => {
-    const status = (error as { statusCode?: number }).statusCode ?? (error instanceof z.ZodError ? 422 : 500);
-    reply.status(status).send({ error: (error as Error).message, details: error instanceof z.ZodError ? error.issues : undefined });
+  app.setErrorHandler((error, request, reply) => {
+    const validationError = error instanceof z.ZodError;
+    const status = (error as { statusCode?: number }).statusCode ?? (validationError ? 422 : 500);
+    if (status >= 500) request.log.error(error);
+    const message = status >= 500
+      ? "حدث خطأ في خادم النظام. حاول مرة أخرى لاحقًا."
+      : validationError ? "البيانات المرسلة غير صحيحة" : (error as Error).message;
+    reply.type("application/json").status(status).send({
+      success: false,
+      code: validationError ? "VALIDATION_ERROR" : status >= 500 ? "SERVER_ERROR" : "REQUEST_FAILED",
+      message,
+      error: message,
+      details: validationError ? error.issues : undefined,
+    });
   });
 
   app.get("/health", async () => ({ status: "ok", service: "repair-api" }));
 
   app.post("/auth/login", async (request, reply) => {
-    const body = z.object({ email: z.string().email(), password: z.string().min(8), tenant: z.string().min(1) }).parse(request.body);
-    const user = await prisma.user.findFirst({ where: { email: body.email.toLowerCase(), tenant: { slug: body.tenant }, isActive: true }, include: { roles: { include: { role: { include: { permissions: true } } } }, tenant: true } });
-    if (!user || !(await bcrypt.compare(body.password, user.passwordHash))) return reply.status(401).send({ error: "بيانات الدخول غير صحيحة" });
-    const permissions = [...new Set(user.roles.flatMap((item) => item.role.permissions.map((p) => p.permissionId)))];
+    const parsed = z.object({
+      email: z.string().email(),
+      password: z.string().min(8),
+      tenant: z.string().trim().min(1),
+    }).safeParse(request.body);
+    if (!parsed.success) {
+      return reply.status(422).send({ success: false, code: "VALIDATION_ERROR", message: "بيانات تسجيل الدخول غير مكتملة أو غير صحيحة" });
+    }
+
+    const body = parsed.data;
+    const tenant = await prisma.tenant.findUnique({
+      where: { slug: body.tenant },
+      include: { subscriptions: { orderBy: { startsAt: "desc" }, take: 1 } },
+    });
+    if (!tenant) {
+      return reply.status(404).send({ success: false, code: "INVALID_REPAIR_CENTER", message: "رمز مركز الصيانة غير صحيح" });
+    }
+
+    const subscription = tenant.subscriptions[0];
+    if (subscription?.status === "SUSPENDED") {
+      return reply.status(403).send({ success: false, code: "TENANT_SUSPENDED", message: "تم إيقاف حساب مركز الصيانة. تواصل مع الدعم." });
+    }
+    const subscriptionExpired = subscription && (
+      ["EXPIRED", "CANCELLED"].includes(subscription.status) ||
+      (subscription.endsAt !== null && subscription.endsAt.getTime() < Date.now())
+    );
+    if (subscriptionExpired) {
+      return reply.status(403).send({ success: false, code: "SUBSCRIPTION_EXPIRED", message: "انتهى اشتراك مركز الصيانة. يرجى تجديد الاشتراك." });
+    }
+
+    const user = await prisma.user.findFirst({
+      where: { email: body.email.toLowerCase(), tenantId: tenant.id, isActive: true },
+      include: { roles: { include: { role: { include: { permissions: true } } } }, branch: true },
+    });
+    if (!user || !(await bcrypt.compare(body.password, user.passwordHash))) {
+      return reply.status(401).send({ success: false, code: "INVALID_CREDENTIALS", message: "بيانات تسجيل الدخول غير صحيحة" });
+    }
+
+    const permissions = [...new Set(user.roles.flatMap((item) => item.role.permissions.map((permission) => permission.permissionId)))];
     const token = await issueToken({ userId: user.id, tenantId: user.tenantId, branchId: user.branchId, permissions });
-    return { token, user: { id: user.id, name: user.name, branchId: user.branchId, permissions }, tenant: { name: user.tenant.name, primaryColor: user.tenant.primaryColor } };
+    return {
+      success: true,
+      token,
+      user: { id: user.id, name: user.name, branchId: user.branchId, permissions },
+      tenant: { id: tenant.id, name: tenant.name, slug: tenant.slug, primaryColor: tenant.primaryColor },
+      branch: user.branch ? { id: user.branch.id, name: user.branch.name, code: user.branch.code } : null,
+      permissions,
+    };
   });
 
   app.get("/me", async (request) => requireAuth(request));

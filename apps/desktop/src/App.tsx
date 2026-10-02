@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { moneyMinorToDisplay, statusLabels, type RepairStatus } from "@repair/domain";
-import { api, type Session } from "./api";
+import { api } from "./api";
+import { login, type Session } from "./auth";
 
 type Catalog = { brands: { id: string; name: string }[]; faults: { id: string; name: string }[]; branches: { id: string; name: string }[] };
 type Repair = { id: string; repairNumber: string; status: RepairStatus; model: string; createdAt: string; customer: { name: string; phoneDisplay: string }; brand: { name: string } };
@@ -23,7 +24,7 @@ export function App() {
 
 function Login({ onLogin }: { onLogin: (session: Session) => void }) {
   const [error, setError] = useState(""); const [busy, setBusy] = useState(false);
-  async function submit(event: FormEvent<HTMLFormElement>) { event.preventDefault(); setBusy(true); setError(""); const data = new FormData(event.currentTarget); try { onLogin(await api<Session>("/auth/login", { method: "POST", body: JSON.stringify({ tenant: data.get("tenant"), email: data.get("email"), password: data.get("password") }) })); } catch (e) { setError((e as Error).message); } finally { setBusy(false); } }
+  async function submit(event: FormEvent<HTMLFormElement>) { event.preventDefault(); setBusy(true); setError(""); const data = new FormData(event.currentTarget); try { onLogin(await login({ tenant: String(data.get("tenant")), email: String(data.get("email")), password: String(data.get("password")) })); } catch (e) { setError((e as Error).message); } finally { setBusy(false); } }
   return <div className="login-shell"><section className="login-card"><span className="eyebrow">منصة إدارة مراكز الصيانة</span><h1>أهلاً بعودتك</h1><p>سجّل الدخول إلى مساحة عمل المركز</p><form onSubmit={submit}><label>رمز المركز<input name="tenant" defaultValue="demo" required /></label><label>البريد الإلكتروني<input name="email" type="email" defaultValue="reception@demo.local" required /></label><label>كلمة المرور<input name="password" type="password" defaultValue="Demo@12345" required /></label>{error && <div className="error">{error}</div>}<button className="primary" disabled={busy}>{busy ? "جارٍ الدخول…" : "تسجيل الدخول"}</button></form><small>بيانات البيئة التجريبية موضحة في README</small></section><section className="login-visual"><div><b>استقبال أسرع.</b><b>متابعة أوضح.</b><b>تسليم بلا أخطاء.</b></div></section></div>;
 }
 
