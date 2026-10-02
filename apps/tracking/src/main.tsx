@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { moneyMinorToDisplay, statusLabels, type RepairStatus } from "@repair/domain";
+import { moneyMinorToDisplay, statusLabels, type RepairStatus } from "./domain";
 import "./styles.css";
 
 type Tracking = { shop: { name: string; logoUrl?: string; primaryColor: string; phone?: string }; branch: { name: string; address?: string; phone?: string }; repairNumber: string; device: { brand: string; model: string }; status: RepairStatus; timeline: { toStatus: RepairStatus; createdAt: string }[]; lastUpdate: string; estimatedCost: number; paid: number };
