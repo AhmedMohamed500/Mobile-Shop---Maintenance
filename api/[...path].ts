@@ -1,11 +1,13 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { buildApp } from "../apps/api/src/app.js";
 
-const app = buildApp();
-const ready = app.ready();
+const appPromise = import("../apps/api/src/app.js").then(async ({ buildApp }) => {
+  const app = buildApp();
+  await app.ready();
+  return app;
+});
 
 export default async function handler(request: IncomingMessage, response: ServerResponse) {
-  await ready;
+  const app = await appPromise;
   request.url = request.url?.replace(/^\/api/, "") || "/";
   app.server.emit("request", request, response);
 }
