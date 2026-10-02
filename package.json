@@ -1,0 +1,20 @@
+{
+  "name": "repair-center-erp",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@11.19.0",
+  "scripts": {
+    "dev": "pnpm --parallel --filter @repair/api --filter @repair/desktop --filter @repair/tracking dev",
+    "build": "pnpm -r build",
+    "test": "pnpm -r test",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "pnpm -r lint",
+    "db:generate": "pnpm --filter @repair/api prisma generate",
+    "db:migrate": "pnpm --filter @repair/api prisma migrate dev",
+    "db:seed": "pnpm --filter @repair/api prisma db seed"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4"
+  }
+}

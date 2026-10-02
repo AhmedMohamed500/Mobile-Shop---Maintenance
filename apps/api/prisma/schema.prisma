@@ -1,0 +1,347 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum RepairStatus {
+  RECEIVED
+  DIAGNOSING
+  AWAITING_CUSTOMER_APPROVAL
+  CUSTOMER_APPROVED
+  CUSTOMER_DECLINED
+  UNDER_REPAIR
+  READY_FOR_DELIVERY
+  READY_FOR_RETURN_WITHOUT_REPAIR
+  DELIVERED
+  CANCELLED
+}
+
+enum SubscriptionStatus {
+  TRIAL
+  ACTIVE
+  PAST_DUE
+  SUSPENDED
+  EXPIRED
+  CANCELLED
+}
+
+enum JobStatus {
+  QUEUED
+  PROCESSING
+  SENT
+  COMPLETED
+  FAILED
+}
+
+enum PaymentKind {
+  DEPOSIT
+  COLLECTION
+  REFUND
+  REVERSAL
+}
+
+enum UnlockKind {
+  PIN
+  PATTERN
+}
+
+model Tenant {
+  id            String         @id @default(uuid()) @db.Uuid
+  name          String
+  slug          String         @unique
+  phone         String?
+  whatsapp      String?
+  address       String?
+  logoUrl       String?
+  primaryColor  String         @default("#0f766e")
+  receiptFooter String?
+  timezone      String         @default("Africa/Cairo")
+  currency      String         @default("EGP")
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  branches      Branch[]
+  users         User[]
+  roles         Role[]
+  customers     Customer[]
+  brands        DeviceBrand[]
+  faultPresets  FaultPreset[]
+  repairOrders  RepairOrder[]
+  subscriptions Subscription[]
+  auditLogs     AuditLog[]
+}
+
+model Branch {
+  id       String        @id @default(uuid()) @db.Uuid
+  tenantId String        @db.Uuid
+  tenant   Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name     String
+  code     String
+  address  String?
+  phone    String?
+  isActive Boolean       @default(true)
+  users    User[]
+  repairs  RepairOrder[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId, isActive])
+}
+
+model User {
+  id             String                @id @default(uuid()) @db.Uuid
+  tenantId       String                @db.Uuid
+  tenant         Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  branchId       String?               @db.Uuid
+  branch         Branch?               @relation(fields: [branchId], references: [id])
+  name           String
+  email          String
+  passwordHash   String
+  isActive       Boolean               @default(true)
+  roles          UserRole[]
+  createdRepairs RepairOrder[]         @relation("CreatedBy")
+  statusChanges  RepairStatusHistory[]
+  auditLogs      AuditLog[]
+
+  @@unique([tenantId, email])
+  @@index([tenantId, branchId])
+}
+
+model Role {
+  id          String           @id @default(uuid()) @db.Uuid
+  tenantId    String           @db.Uuid
+  tenant      Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name        String
+  isSystem    Boolean          @default(false)
+  permissions RolePermission[]
+  users       UserRole[]
+
+  @@unique([tenantId, name])
+}
+
+model Permission {
+  id          String           @id
+  description String
+  roles       RolePermission[]
+}
+
+model RolePermission {
+  roleId       String     @db.Uuid
+  permissionId String
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+}
+
+model UserRole {
+  userId String @db.Uuid
+  roleId String @db.Uuid
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role   Role   @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([userId, roleId])
+}
+
+model Customer {
+  id              String        @id @default(uuid()) @db.Uuid
+  tenantId        String        @db.Uuid
+  tenant          Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name            String
+  phoneNormalized String
+  phoneDisplay    String
+  isRegular       Boolean       @default(false)
+  createdAt       DateTime      @default(now())
+  repairs         RepairOrder[]
+
+  @@unique([tenantId, phoneNormalized])
+  @@index([tenantId, name])
+}
+
+model DeviceBrand {
+  id        String        @id @default(uuid()) @db.Uuid
+  tenantId  String        @db.Uuid
+  tenant    Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name      String
+  isActive  Boolean       @default(true)
+  sortOrder Int           @default(0)
+  repairs   RepairOrder[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId, isActive, sortOrder])
+}
+
+model FaultPreset {
+  id           String        @id @default(uuid()) @db.Uuid
+  tenantId     String        @db.Uuid
+  tenant       Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name         String
+  isActive     Boolean       @default(true)
+  sortOrder    Int           @default(0)
+  repairFaults RepairFault[]
+
+  @@unique([tenantId, name])
+}
+
+model RepairOrder {
+  id               String                @id @default(uuid()) @db.Uuid
+  tenantId         String                @db.Uuid
+  tenant           Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  branchId         String                @db.Uuid
+  branch           Branch                @relation(fields: [branchId], references: [id])
+  customerId       String                @db.Uuid
+  customer         Customer              @relation(fields: [customerId], references: [id])
+  brandId          String                @db.Uuid
+  brand            DeviceBrand           @relation(fields: [brandId], references: [id])
+  createdById      String                @db.Uuid
+  createdBy        User                  @relation("CreatedBy", fields: [createdById], references: [id])
+  repairNumber     String
+  publicTokenHash  String                @unique
+  model            String
+  color            String?
+  imei             String?
+  reportedFault    String
+  unlockKind       UnlockKind?
+  unlockCiphertext String?
+  unlockIv         String?
+  unlockAuthTag    String?
+  estimatedCost    Decimal               @db.Decimal(12, 2)
+  status           RepairStatus          @default(RECEIVED)
+  deliveredAt      DateTime?
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
+  faults           RepairFault[]
+  statusHistory    RepairStatusHistory[]
+  payments         Payment[]
+  printJobs        PrintJob[]
+  whatsappMessages WhatsappMessage[]
+
+  @@unique([tenantId, repairNumber])
+  @@index([tenantId, branchId, status])
+  @@index([tenantId, createdAt])
+}
+
+model RepairFault {
+  repairOrderId String      @db.Uuid
+  faultPresetId String      @db.Uuid
+  repairOrder   RepairOrder @relation(fields: [repairOrderId], references: [id], onDelete: Cascade)
+  faultPreset   FaultPreset @relation(fields: [faultPresetId], references: [id])
+
+  @@id([repairOrderId, faultPresetId])
+}
+
+model RepairStatusHistory {
+  id            String        @id @default(uuid()) @db.Uuid
+  repairOrderId String        @db.Uuid
+  repairOrder   RepairOrder   @relation(fields: [repairOrderId], references: [id], onDelete: Cascade)
+  fromStatus    RepairStatus?
+  toStatus      RepairStatus
+  reason        String?
+  changedById   String        @db.Uuid
+  changedBy     User          @relation(fields: [changedById], references: [id])
+  createdAt     DateTime      @default(now())
+
+  @@index([repairOrderId, createdAt])
+}
+
+model Payment {
+  id                String      @id @default(uuid()) @db.Uuid
+  repairOrderId     String      @db.Uuid
+  repairOrder       RepairOrder @relation(fields: [repairOrderId], references: [id])
+  amount            Decimal     @db.Decimal(12, 2)
+  kind              PaymentKind
+  reference         String?
+  createdAt         DateTime    @default(now())
+  reversedPaymentId String?     @db.Uuid
+
+  @@index([repairOrderId, createdAt])
+}
+
+model PrintJob {
+  id            String      @id @default(uuid()) @db.Uuid
+  repairOrderId String      @db.Uuid
+  repairOrder   RepairOrder @relation(fields: [repairOrderId], references: [id])
+  kind          String
+  payload       Json
+  status        JobStatus   @default(QUEUED)
+  attempts      Int         @default(0)
+  failureReason String?
+  createdAt     DateTime    @default(now())
+
+  @@index([status, createdAt])
+}
+
+model WhatsappMessage {
+  id                String      @id @default(uuid()) @db.Uuid
+  repairOrderId     String      @db.Uuid
+  repairOrder       RepairOrder @relation(fields: [repairOrderId], references: [id])
+  tenantId          String      @db.Uuid
+  branchId          String      @db.Uuid
+  type              String
+  recipient         String
+  templateKey       String
+  variables         Json
+  status            JobStatus   @default(QUEUED)
+  idempotencyKey    String      @unique
+  providerMessageId String?
+  attempts          Int         @default(0)
+  failureReason     String?
+  sentAt            DateTime?
+  createdAt         DateTime    @default(now())
+
+  @@index([tenantId, status, createdAt])
+}
+
+model IdempotencyKey {
+  id          String   @id @default(uuid()) @db.Uuid
+  tenantId    String   @db.Uuid
+  key         String
+  requestHash String
+  response    Json?
+  createdAt   DateTime @default(now())
+
+  @@unique([tenantId, key])
+}
+
+model AuditLog {
+  id         String   @id @default(uuid()) @db.Uuid
+  tenantId   String   @db.Uuid
+  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  actorId    String?  @db.Uuid
+  actor      User?    @relation(fields: [actorId], references: [id])
+  action     String
+  entityType String
+  entityId   String
+  before     Json?
+  after      Json?
+  ipAddress  String?
+  createdAt  DateTime @default(now())
+
+  @@index([tenantId, createdAt])
+}
+
+model Plan {
+  id            String         @id @default(uuid()) @db.Uuid
+  code          String         @unique
+  name          String
+  monthlyPrice  Decimal        @db.Decimal(12, 2)
+  yearlyPrice   Decimal        @db.Decimal(12, 2)
+  limits        Json
+  subscriptions Subscription[]
+}
+
+model Subscription {
+  id           String             @id @default(uuid()) @db.Uuid
+  tenantId     String             @db.Uuid
+  tenant       Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  planId       String             @db.Uuid
+  plan         Plan               @relation(fields: [planId], references: [id])
+  status       SubscriptionStatus
+  billingCycle String
+  startsAt     DateTime
+  endsAt       DateTime?
+
+  @@index([tenantId, status])
+}

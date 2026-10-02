@@ -1,0 +1,8 @@
+node_modules/
+.env
+dist/
+coverage/
+*.log
+.turbo/
+apps/api/prisma/dev.db*
+apps/desktop/src-tauri/target/

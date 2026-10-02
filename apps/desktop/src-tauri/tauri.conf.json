@@ -1,0 +1,9 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Repair Center ERP",
+  "version": "0.1.0",
+  "identifier": "com.repaircenter.erp",
+  "build": { "beforeDevCommand": "pnpm dev", "devUrl": "http://localhost:5173", "beforeBuildCommand": "pnpm build", "frontendDist": "../dist" },
+  "app": { "windows": [{ "title": "إدارة مركز الصيانة", "width": 1366, "height": 768, "minWidth": 1100, "minHeight": 650 }] },
+  "bundle": { "active": true, "targets": "all" }
+}
