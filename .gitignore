@@ -6,3 +6,8 @@ coverage/
 .turbo/
 apps/api/prisma/dev.db*
 apps/desktop/src-tauri/target/
+.vercel/
+.tmp-vercel/
+
+.vercel
+.env*

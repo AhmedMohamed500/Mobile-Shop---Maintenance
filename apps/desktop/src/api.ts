@@ -1,4 +1,4 @@
-const base = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
+const base = import.meta.env.VITE_API_URL ?? "";
 
 export type Session = { token: string; user: { name: string; permissions: string[]; branchId: string | null }; tenant: { name: string; primaryColor: string } };
 
