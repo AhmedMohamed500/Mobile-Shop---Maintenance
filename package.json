@@ -11,10 +11,14 @@
     "lint": "pnpm -r lint",
     "db:generate": "pnpm --filter @repair/api prisma generate",
     "db:migrate": "pnpm --filter @repair/api prisma migrate dev",
-    "db:seed": "pnpm --filter @repair/api prisma db seed"
+    "db:seed": "pnpm --filter @repair/api prisma db seed",
+    "postinstall": "pnpm --filter @repair/api prisma generate"
   },
   "devDependencies": {
     "typescript": "^5.9.3",
     "vitest": "^3.2.4"
+  },
+  "prisma": {
+    "schema": "apps/api/prisma/schema.prisma"
   }
 }
