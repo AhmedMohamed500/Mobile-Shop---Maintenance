@@ -4,25 +4,22 @@
 
 تم إصلاح مشكلة تسجيل الدخول ونشر الإصلاح على النسخة الحية:
 
-- التطبيق: https://mobile-shop-maintenance.vercel.app
-- المستودع: https://github.com/AhmedMohamed500/Mobile-Shop---Maintenance
+- التطبيق: [https://mobile-shop-maintenance.vercel.app](https://mobile-shop-maintenance.vercel.app)
+- المستودع: [https://github.com/AhmedMohamed500/Mobile-Shop---Maintenance](https://github.com/AhmedMohamed500/Mobile-Shop---Maintenance)
 
 ## السبب الجذري
 
 كان متغير `VITE_API_URL` غير مضبوط في بناء واجهة سطح المكتب، ولذلك كان العميل يرسل طلب تسجيل الدخول إلى:
-
 ```text
 /auth/login
 ```
 
 هذا المسار كان يصل إلى واجهة React/Vite على Vercel بدل خادم الـ API، فتُرجع Vercel استجابة نصية تبدأ بـ:
-
 ```text
 The page could not be found
 ```
 
 بعد ذلك كان عميل الواجهة ينفذ `response.json()` مباشرة، مما تسبب في الخطأ:
-
 ```text
 Unexpected token 'T', "The page c"... is not valid JSON
 ```
@@ -30,19 +27,16 @@ Unexpected token 'T', "The page c"... is not valid JSON
 ## مسارات تسجيل الدخول الصحيحة
 
 ### الإنتاج
-
 ```text
 POST https://mobile-shop-maintenance.vercel.app/api/auth/login
 ```
 
 ### التطوير المحلي عبر Vite وTauri
-
 ```text
 POST http://127.0.0.1:5173/api/auth/login
 ```
 
 يمر الطلب عبر Vite proxy إلى خادم Fastify المحلي:
-
 ```text
 POST http://127.0.0.1:4000/auth/login
 ```
@@ -56,7 +50,6 @@ POST http://127.0.0.1:4000/auth/login
 - فحص `status` و`content-type` قبل تحليل الاستجابة.
 - منع عرض HTML أو stack traces للمستخدم.
 - عرض رسالة عربية آمنة عند وصول استجابة غير JSON:
-
 ```text
 تعذر الاتصال بخادم النظام. تأكد من تشغيل الخادم وإعدادات الاتصال.
 ```
@@ -75,7 +68,6 @@ POST http://127.0.0.1:4000/auth/login
 - استبدال CORS المفتوح بقائمة origins محددة للتطوير وTauri والنطاقات المنشورة.
 
 ## بيانات الحساب التجريبي
-
 ```text
 رمز مركز الصيانة: demo
 البريد الإلكتروني: reception@demo.local
@@ -116,7 +108,6 @@ POST http://127.0.0.1:4000/auth/login
 ## حالة النشر
 
 الإصلاح الأساسي منشور في commit:
-
 ```text
 e61cf4d6b5208e949f0fc6d6d8f701a960c5e253
 ```
