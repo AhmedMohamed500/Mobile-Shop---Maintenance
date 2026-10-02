@@ -11,3 +11,4 @@ apps/desktop/src-tauri/target/
 
 .vercel
 .env*
+apps/api/generated/

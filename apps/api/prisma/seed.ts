@@ -1,4 +1,4 @@
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient } from "../generated/client/index.js";
 import bcrypt from "bcryptjs";
 import { permissions } from "@repair/domain";
 

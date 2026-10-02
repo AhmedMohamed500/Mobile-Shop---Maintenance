@@ -1,6 +1,6 @@
 import Fastify from "fastify";
 import cors from "@fastify/cors";
-import { Prisma, PrismaClient, RepairStatus } from "@prisma/client";
+import { Prisma, PrismaClient, RepairStatus } from "../generated/client/index.js";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { assertTransition, normalizePhone } from "@repair/domain";
