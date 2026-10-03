@@ -113,7 +113,7 @@ export function registerSettingsRoutes(app: FastifyInstance, prisma: PrismaClien
   app.post("/settings/branches", async (request, reply) => {
     const auth = await requireAuth(request); requirePermission(auth, "settings.manage");
     const body = z.object({ name: z.string().trim().min(2).max(100), code: z.string().trim().min(2).max(20).transform((value) => value.toUpperCase()), address: z.string().max(300).optional(), phone: z.string().max(30).optional() }).parse(request.body);
-    return reply.status(201).send(await prisma.branch.create({ data: { tenantId: auth.tenantId, ...body } }));
+    return reply.status(201).send(await prisma.branch.create({ data: { tenantId: auth.tenantId, name: body.name, code: String(body.code).toUpperCase(), address: body.address, phone: body.phone } }));
   });
   app.patch("/settings/branches/:id", async (request) => {
     const auth = await requireAuth(request); requirePermission(auth, "settings.manage"); const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
@@ -141,4 +141,3 @@ export function registerSettingsRoutes(app: FastifyInstance, prisma: PrismaClien
     return { processed: jobs.length, sent, failed };
   });
 }
-

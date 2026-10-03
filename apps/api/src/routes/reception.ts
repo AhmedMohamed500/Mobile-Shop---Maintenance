@@ -89,7 +89,7 @@ export function registerReceptionRoutes(app: FastifyInstance, prisma: PrismaClie
   app.get("/repairs/scan", async (request) => {
     const auth = await requireAuth(request); requirePermission(auth, "repair.view");
     const { code } = z.object({ code: z.string().trim().min(1).max(500) }).parse(request.query);
-    const token = (() => { try { const url = new URL(code); const parts = url.pathname.split("/").filter(Boolean); return parts.includes("r") ? parts.at(-1) : undefined; } catch { return undefined; } })();
+    const token = (() => { try { const url = new URL(code); const parts = url.pathname.split("/").filter(Boolean); return parts.includes("r") ? parts[parts.length - 1] : undefined; } catch { return undefined; } })();
     const repair = await prisma.repairOrder.findFirst({ where: { tenantId: auth.tenantId, ...(auth.branchId ? { branchId: auth.branchId } : {}), OR: [{ repairNumber: { equals: code, mode: "insensitive" } }, { imei: { equals: code, mode: "insensitive" } }, ...(token ? [{ publicTokenHash: hashToken(token) }] : [])] }, include: repairInclude });
     if (!repair) throw httpError(404, "لم يتم العثور على أمر الصيانة");
     return repairJson(repair);
@@ -158,4 +158,3 @@ export function registerReceptionRoutes(app: FastifyInstance, prisma: PrismaClie
   app.get("/repairs/:id/print-jobs", async (request) => { const auth = await requireAuth(request); requirePermission(auth, "repair.view"); const { id } = z.object({ id: z.string().uuid() }).parse(request.params); const repair = await prisma.repairOrder.findFirst({ where: { id, tenantId: auth.tenantId } }); if (!repair) throw httpError(404, "أمر الصيانة غير موجود"); return prisma.printJob.findMany({ where: { repairOrderId: id }, orderBy: { createdAt: "desc" } }); });
   app.post("/print-jobs/:id/reprint", async (request, reply) => { const auth = await requireAuth(request); requirePermission(auth, "repair.view"); const { id } = z.object({ id: z.string().uuid() }).parse(request.params); const job = await prisma.printJob.findFirst({ where: { id, repairOrder: { tenantId: auth.tenantId } } }); if (!job) throw httpError(404, "مهمة الطباعة غير موجودة"); const reprint = await prisma.$transaction(async (tx) => { const created = await tx.printJob.create({ data: { repairOrderId: job.repairOrderId, kind: job.kind, payload: job.payload === null ? Prisma.JsonNull : job.payload, status: "QUEUED" } }); await tx.auditLog.create({ data: { tenantId: auth.tenantId, actorId: auth.userId, action: job.kind === "LABEL" ? "label.reprinted" : "receipt.reprinted", entityType: "print_job", entityId: created.id, after: { sourceJobId: id, kind: job.kind } } }); return created; }); return reply.status(201).send(reprint); });
 }
-
