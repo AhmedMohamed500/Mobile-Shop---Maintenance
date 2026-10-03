@@ -1,10 +1,18 @@
 # Repair Center ERP
 
-Arabic-first, RTL-first multi-tenant SaaS ERP for mobile repair centers. This repository contains the first usable vertical slice: authentication, tenant/branch isolation, permission-based access, customer/device intake, secure public tracking, reception/workshop views, print jobs, and a WhatsApp outbox.
+Arabic-first, RTL-first multi-tenant SaaS ERP for mobile repair centers. The current vertical slice is operational from reception through workshop, customer approval, repair, delivery, payment, tracking, messages, printing queues, and audit history.
+
+## Implemented workflow
+
+`RECEIVED → DIAGNOSING → AWAITING_CUSTOMER_APPROVAL → CUSTOMER_APPROVED → UNDER_REPAIR → READY_FOR_DELIVERY → DELIVERED`
+
+A rejected quotation follows `CUSTOMER_DECLINED → READY_FOR_RETURN_WITHOUT_REPAIR → DELIVERED`. Quotations are versioned; changing a price creates a new approval request. Delivery collects the exact valid balance and purges encrypted unlock credentials.
+
+The desktop/web app includes permission-aware reception, intake, delivery, customers, workshop, settings, users, roles, public tracking, and public quote approval. Reception sees only reception modules. Counts and lists come from PostgreSQL.
 
 ## Local setup
 
-Requirements: Node.js 22+, pnpm 10+, Docker Desktop, and optionally Rust for the Tauri Windows shell.
+Requirements: Node.js 22+, pnpm 11+, PostgreSQL, and optionally Rust for the Tauri Windows shell.
 
 ```bash
 cp .env.example .env
@@ -16,23 +24,33 @@ pnpm db:seed
 pnpm dev
 ```
 
-Open the reception/desktop web UI at `http://localhost:5173`, the tracking UI at `http://localhost:5174/r/<token>`, and the API at `http://localhost:4000`.
+Open the app at `http://localhost:5173`, the standalone tracking UI at `http://localhost:5174/r/<token>`, and the API at `http://localhost:4000`. Production also serves `/r/<token>` and `/approve/<token>` from the main web app.
 
-Demo tenant: `demo`. Demo password: `Demo@12345`. Users: `owner@demo.local`, `reception@demo.local`, `technician@demo.local`, and `manager@demo.local`.
+## Demo data
 
-Generate a valid encryption key before running outside a throwaway environment:
+- Center code: `demo`
+- Branch: `MAIN`
+- Password for all demo users: `Demo@12345`
+- Owner: `owner@demo.local`
+- Manager: `manager@demo.local`
+- Reception: `reception@demo.local`
+- Technician: `technician@demo.local`
+
+Seed is repeatable and restores the documented demo users, editable brands/fault presets, subscription, and clearly prefixed `DEMO-...` repair orders.
+
+## Commands
+
+- `pnpm dev` — API, desktop UI, and standalone tracking UI
+- `pnpm test` — domain, API, and frontend client tests
+- `pnpm typecheck` — TypeScript verification
+- `pnpm build` — production builds
+- `pnpm db:migrate` — PostgreSQL migrations
+- `pnpm db:seed` — deterministic demo data
+
+Generate a valid unlock encryption key outside throwaway environments:
 
 ```bash
 node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
 ```
 
-## Commands
-
-- `pnpm dev` — API, desktop UI, and tracking UI
-- `pnpm test` — automated domain/API tests
-- `pnpm typecheck` — TypeScript verification
-- `pnpm build` — production frontend/API builds
-- `pnpm db:migrate` — PostgreSQL migrations
-- `pnpm db:seed` — editable demo tenant and users
-
-The Tauri shell lives in `apps/desktop/src-tauri`; run it after installing the Rust and Tauri prerequisites. Printing remains a local desktop concern, while the API persists print jobs and print history.
+The Tauri shell is in `apps/desktop/src-tauri`. Print jobs and safe receipt/label payloads are persisted and reprintable. A physical printer still requires the local Tauri printer bridge. The mock WhatsApp provider can process the outbox without Meta credentials; production Meta credentials/webhooks are a separate provider integration.

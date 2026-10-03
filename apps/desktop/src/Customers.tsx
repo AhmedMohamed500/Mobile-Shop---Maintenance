@@ -1,0 +1,14 @@
+import { FormEvent, useEffect, useState } from "react";
+import { statusLabels } from "@repair/domain";
+import { api } from "./api";
+import type { Session } from "./auth";
+import type { Customer } from "./types";
+
+export function Customers({ session }: { session: Session }) {
+  const [customers, setCustomers] = useState<Customer[]>([]); const [search, setSearch] = useState(""); const [selected, setSelected] = useState<Customer | null>(null); const [message, setMessage] = useState("");
+  const load = () => api<Customer[]>(`/customers${search ? `?search=${encodeURIComponent(search)}` : ""}`, {}, session.token).then(setCustomers).catch((e) => setMessage(e.message));
+  useEffect(() => { void load(); }, [session.token, search]);
+  async function save(event: FormEvent<HTMLFormElement>) { event.preventDefault(); if (!selected) return; const d = new FormData(event.currentTarget); try { await api(`/customers/${selected.id}`, { method: "PATCH", body: JSON.stringify({ name: d.get("name"), whatsappPhone: d.get("whatsappPhone") || null, isRegular: d.get("isRegular") === "on", notes: d.get("notes") || null }) }, session.token); setMessage("تم حفظ بيانات العميل"); setSelected(null); load(); } catch (e) { setMessage((e as Error).message); } }
+  return <><header><div><span className="eyebrow">دليل العملاء</span><h1>العملاء وسجل الأجهزة</h1></div></header><div className="search"><span>⌕</span><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="ابحث بالاسم أو رقم الهاتف" /></div>{message && <div className={message.startsWith("تم") ? "success" : "error"}>{message}</div>}<section className="customer-grid">{customers.map((customer) => <article className="panel" key={customer.id}><div className="row between"><div><h2>{customer.name}</h2><span dir="ltr">{customer.phoneDisplay}</span></div><button className="ghost" onClick={() => setSelected(customer)}>تعديل</button></div><p>{customer.isRegular ? "عميل دائم" : "عميل"}{customer.notes ? ` · ${customer.notes}` : ""}</p><div className="mini-history">{customer.repairs?.map((repair) => <span key={repair.id}><b>{repair.repairNumber}</b> {repair.model} · {statusLabels[repair.status]}</span>)}{!customer.repairs?.length && <small>لا توجد أجهزة مسجلة</small>}</div></article>)}</section>{selected && <div className="modal"><form className="panel modal-card" onSubmit={save}><h2>تعديل العميل</h2><label>الاسم<input name="name" defaultValue={selected.name} required /></label><label>رقم واتساب<input name="whatsappPhone" defaultValue={selected.whatsappPhone} /></label><label>ملاحظات<textarea name="notes" defaultValue={selected.notes} /></label><label className="check"><input name="isRegular" type="checkbox" defaultChecked={selected.isRegular} /> عميل دائم</label><div className="row end"><button type="button" className="ghost" onClick={() => setSelected(null)}>إلغاء</button><button className="primary">حفظ</button></div></form></div>}</>;
+}
+

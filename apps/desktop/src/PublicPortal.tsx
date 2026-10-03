@@ -1,0 +1,24 @@
+import { useEffect, useState } from "react";
+import { statusLabels, type RepairStatus } from "@repair/domain";
+import { api } from "./api";
+import { formatMoney } from "./types";
+
+type Tracking = { shop: { name: string; logoUrl?: string; primaryColor: string; phone?: string }; branch: { name: string; address?: string; phone?: string }; repairNumber: string; device: { brand: string; model: string }; status: RepairStatus; timeline: { toStatus: RepairStatus; createdAt: string }[]; lastUpdate: string; approvedAmount: number; paid: number; remaining: number };
+type Approval = { repairNumber: string; customerName: string; device: string; quote: { version: number; amount: number; diagnosis: string; customerNote?: string; status: string }; decided: "APPROVED" | "REJECTED" | null };
+
+export function PublicPortal() {
+  const parts = location.pathname.split("/").filter(Boolean); const token = parts.at(-1); return parts.includes("approve") ? <ApprovalView token={token} /> : <TrackingView token={token} />;
+}
+function Frame({ children, color = "#0f766e" }: { children: React.ReactNode; color?: string }) { return <div className="public-portal" style={{ "--brand": color } as React.CSSProperties}><main>{children}</main></div>; }
+function TrackingView({ token }: { token?: string }) {
+  const [data, setData] = useState<Tracking | null>(null); const [error, setError] = useState(""); useEffect(() => { if (!token) return setError("رابط المتابعة غير صالح"); api<Tracking>(`/public/tracking/${token}`).then(setData).catch((e) => setError(e.message)); }, [token]);
+  if (error) return <Frame><div className="public-notice error">{error}</div></Frame>; if (!data) return <Frame><div className="public-notice">جارٍ تحميل حالة جهازك…</div></Frame>;
+  return <Frame color={data.shop.primaryColor}><header><div className="brand-mark">{data.shop.logoUrl ? <img src={data.shop.logoUrl} /> : data.shop.name.slice(0, 1)}</div><div><small>متابعة أمر الصيانة</small><h1>{data.shop.name}</h1></div></header><section className="public-hero"><span>{data.repairNumber}</span><h2>{statusLabels[data.status]}</h2><p>{data.device.brand} · {data.device.model}</p><small>آخر تحديث {new Date(data.lastUpdate).toLocaleString("ar-EG")}</small></section><section className="public-card"><h3>رحلة الجهاز</h3>{data.timeline.map((event, index) => <div className="public-event" key={`${event.toStatus}-${index}`}><i>✓</i><div><b>{statusLabels[event.toStatus]}</b><small>{new Date(event.createdAt).toLocaleString("ar-EG")}</small></div></div>)}</section><section className="public-card"><h3>المدفوعات</h3><p className="public-total"><span>السعر المعتمد</span><b>{formatMoney(data.approvedAmount)}</b></p><p className="public-total"><span>تم دفعه</span><b>{formatMoney(data.paid)}</b></p><p className="public-total remaining"><span>المتبقي</span><b>{formatMoney(data.remaining)}</b></p></section></Frame>;
+}
+function ApprovalView({ token }: { token?: string }) {
+  const [data, setData] = useState<Approval | null>(null); const [decision, setDecision] = useState<"APPROVED" | "REJECTED" | null>(null); const [error, setError] = useState(""); const [busy, setBusy] = useState(false); useEffect(() => { if (!token) return setError("رابط الموافقة غير صالح"); api<Approval>(`/public/approval/${token}`).then((value) => { setData(value); setDecision(value.decided); }).catch((e) => setError(e.message)); }, [token]);
+  async function submit(value: "APPROVED" | "REJECTED") { if (!token) return; setBusy(true); try { await api(`/public/approval/${token}`, { method: "POST", body: JSON.stringify({ decision: value }) }); setDecision(value); } catch (e) { setError((e as Error).message); } finally { setBusy(false); } }
+  if (error && !data) return <Frame><div className="public-notice error">{error}</div></Frame>; if (!data) return <Frame><div className="public-notice">جارٍ تحميل عرض السعر…</div></Frame>;
+  return <Frame><header><div className="brand-mark">ص</div><div><small>موافقة العميل</small><h1>عرض سعر الصيانة</h1></div></header><section className="public-hero"><span>{data.repairNumber}</span><h2>{data.device}</h2><p>مرحبًا {data.customerName}</p></section><section className="public-card quote"><small>عرض السعر رقم {data.quote.version}</small><h3>{formatMoney(data.quote.amount)}</h3><b>التشخيص</b><p>{data.quote.diagnosis}</p>{data.quote.customerNote && <p>{data.quote.customerNote}</p>}</section>{decision ? <div className="public-notice success">{decision === "APPROVED" ? "تم تسجيل موافقتك بنجاح" : "تم تسجيل رفضك للعرض"}</div> : <div className="public-actions"><button disabled={busy} className="primary" onClick={() => submit("APPROVED")}>موافق على الصيانة</button><button disabled={busy} className="reject" onClick={() => submit("REJECTED")}>غير موافق</button></div>}{error && <div className="public-notice error">{error}</div>}</Frame>;
+}
+
