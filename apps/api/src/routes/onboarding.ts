@@ -7,11 +7,13 @@ import { config } from "../config.js";
 import { hashRequest } from "../lib/crypto.js";
 import { httpError } from "./shared.js";
 
+function validPhone(value: string) { try { normalizePhone(value); return true; } catch { return false; } }
+const phoneSchema = z.string().trim().min(8).max(30).refine(validPhone, "INVALID_PHONE");
 const workstationSchema = z.object({ name: z.string().trim().min(2).max(80), type: z.enum(["RECEPTION", "WORKSHOP", "CASHIER", "MANAGER"]), count: z.number().int().min(1).max(20).default(1), defaultPage: z.enum(["dashboard", "intake", "workshop", "delivery", "finance"]).default("dashboard") });
-const branchSchema = z.object({ name: z.string().trim().min(2).max(120), code: z.string().trim().regex(/^[A-Za-z0-9_-]{2,20}$/).transform((x) => x.toUpperCase()), address: z.string().trim().max(300).optional(), phone: z.string().trim().min(8).max(30).optional(), whatsapp: z.string().trim().min(8).max(30).optional(), workstations: z.array(workstationSchema).min(1).max(12) });
+const branchSchema = z.object({ name: z.string().trim().min(2).max(120), code: z.string().trim().regex(/^[A-Za-z0-9_-]{2,20}$/).transform((x) => x.toUpperCase()), address: z.string().trim().max(300).optional(), phone: phoneSchema.optional(), whatsapp: phoneSchema.optional(), workstations: z.array(workstationSchema).min(1).max(12) });
 const setupSchema = z.object({
-  owner: z.object({ fullName: z.string().trim().min(3).max(120), username: z.string().trim().toLowerCase().regex(/^[a-z0-9._-]{3,40}$/), email: z.string().trim().toLowerCase().email(), phone: z.string().trim().min(8).max(30), whatsapp: z.string().trim().min(8).max(30), password: z.string().min(10).max(128).regex(/[A-Z]/).regex(/[a-z]/).regex(/[0-9]/) }),
-  shop: z.object({ name: z.string().trim().min(2).max(150), code: z.string().trim().toLowerCase().regex(/^[a-z0-9-]{3,40}$/), phone: z.string().trim().min(8).max(30), whatsapp: z.string().trim().min(8).max(30), address: z.string().trim().min(3).max(300), governorate: z.string().trim().min(2).max(80), city: z.string().trim().min(2).max(80), notes: z.string().trim().max(1000).optional(), logoDataUrl: z.string().max(400_000).optional() }),
+  owner: z.object({ fullName: z.string().trim().min(3).max(120), username: z.string().trim().toLowerCase().regex(/^[a-z0-9._-]{3,40}$/), email: z.string().trim().toLowerCase().email(), phone: phoneSchema, whatsapp: phoneSchema, password: z.string().min(10).max(128).regex(/[A-Z]/).regex(/[a-z]/).regex(/[0-9]/) }),
+  shop: z.object({ name: z.string().trim().min(2).max(150), code: z.string().trim().toLowerCase().regex(/^[a-z0-9-]{3,40}$/), phone: phoneSchema, whatsapp: phoneSchema, address: z.string().trim().min(3).max(300), governorate: z.string().trim().min(2).max(80), city: z.string().trim().min(2).max(80), notes: z.string().trim().max(1000).optional(), logoDataUrl: z.string().max(400_000).optional() }),
   branches: z.array(branchSchema).min(1).max(5),
   defaults: z.object({ currency: z.enum(["EGP", "SAR", "AED", "USD"]).default("EGP"), timezone: z.string().min(3).max(100).default("Africa/Cairo"), paperWidth: z.enum(["58mm", "80mm"]).default("80mm"), warrantyDays: z.number().int().min(0).max(730).default(30), whatsappMode: z.enum(["later", "meta"]).default("later") }),
   subscription: z.object({ planCode: z.string().trim().min(2).max(40).default("STARTER"), billingCycle: z.enum(["TRIAL", "MONTHLY", "YEARLY"]).default("TRIAL") }),
@@ -21,6 +23,15 @@ const setupSchema = z.object({
 const brands = ["Apple", "Samsung", "Xiaomi", "Oppo", "Realme", "Huawei", "Nokia"];
 const faults = ["الشاشة", "البطارية", "الشحن", "سوكت الشحن", "الكاميرا", "السماعة", "الميكروفون", "الشبكة", "البوردة", "السوفت وير", "مشكلة مياه", "لا يعمل"];
 const signupAttempts = new Map<string, { count: number; resetAt: number }>();
+function setupValidationMessage(issue: z.core.$ZodIssue) {
+  const path = issue.path.map(String); const key = path.filter((item) => !/^\d+$/.test(item)).join(".");
+  const labels: Record<string, string> = { "owner.fullName": "الاسم بالكامل", "owner.username": "اسم المستخدم", "owner.email": "البريد الإلكتروني", "owner.phone": "هاتف صاحب المركز", "owner.whatsapp": "واتساب صاحب المركز", "owner.password": "كلمة المرور", "shop.name": "اسم مركز الصيانة", "shop.code": "رمز المركز", "shop.phone": "هاتف المركز", "shop.whatsapp": "واتساب المركز", "shop.address": "عنوان المركز", "shop.governorate": "المحافظة", "shop.city": "المدينة", "branches.name": "اسم الفرع", "branches.code": "كود الفرع", "branches.phone": "هاتف الفرع", "branches.whatsapp": "واتساب الفرع", "branches.workstations.name": "اسم محطة العمل", "branches.workstations.count": "عدد محطات العمل", "acceptedTerms": "تأكيد صحة البيانات" };
+  const label = labels[key] ?? "أحد الحقول"; const branchNumber = path[0] === "branches" && /^\d+$/.test(path[1] ?? "") ? ` في الفرع رقم ${Number(path[1]) + 1}` : "";
+  if (issue.message === "INVALID_PHONE") return `رقم ${label}${branchNumber} غير صحيح. استخدم رقمًا مثل 01012345678`;
+  if (key === "owner.password") return "كلمة المرور يجب أن تكون 10 أحرف على الأقل وتحتوي حرفًا كبيرًا وصغيرًا ورقمًا";
+  if (key.endsWith("code")) return `${label}${branchNumber} غير صالح. استخدم حروفًا إنجليزية وأرقامًا فقط`;
+  return `راجع حقل ${label}${branchNumber}؛ القيمة ناقصة أو غير صحيحة`;
+}
 
 function validateLogo(data?: string) {
   if (!data) return undefined;
@@ -40,7 +51,9 @@ export function registerOnboardingRoutes(app: FastifyInstance, prisma: PrismaCli
     if (!config.PUBLIC_SIGNUP_ENABLED) return reply.status(404).send({ success: false, code: "SIGNUP_DISABLED", message: "إنشاء المراكز الجديدة غير متاح حاليًا" });
     const now = Date.now(); const previous = signupAttempts.get(request.ip); const rate = !previous || previous.resetAt < now ? { count: 1, resetAt: now + 15 * 60_000 } : { ...previous, count: previous.count + 1 }; signupAttempts.set(request.ip, rate);
     if (rate.count > 8) return reply.status(429).send({ success: false, code: "RATE_LIMITED", message: "محاولات كثيرة. حاول مرة أخرى بعد قليل" });
-    const input = setupSchema.parse(request.body); const logoUrl = validateLogo(input.shop.logoDataUrl); const key = z.string().uuid().parse(request.headers["idempotency-key"]); const requestHash = hashRequest(input);
+    const parsed = setupSchema.safeParse(request.body);
+    if (!parsed.success) return reply.status(422).send({ success: false, code: "SETUP_VALIDATION_ERROR", message: setupValidationMessage(parsed.error.issues[0]!) });
+    const input = parsed.data; const logoUrl = validateLogo(input.shop.logoDataUrl); const key = z.string().uuid().parse(request.headers["idempotency-key"]); const requestHash = hashRequest(input);
     const prior = await prisma.onboardingRequest.findUnique({ where: { idempotencyKey: key } });
     if (prior) { if (prior.requestHash !== requestHash) throw httpError(409, "مفتاح العملية مستخدم لطلب مختلف"); if (prior.response) return reply.status(200).send(prior.response); throw httpError(409, "عملية إنشاء المركز قيد التنفيذ"); }
     const existing = await prisma.tenant.findUnique({ where: { slug: input.shop.code }, select: { id: true } }); if (existing) return reply.status(409).send({ success: false, code: "CENTER_CODE_TAKEN", message: "رمز المركز مستخدم بالفعل" });
@@ -62,3 +75,4 @@ export function registerOnboardingRoutes(app: FastifyInstance, prisma: PrismaCli
     return reply.status(201).send(response);
   });
 }
+

@@ -35,6 +35,11 @@ describe("desktop API client", () => {
     } satisfies Partial<ApiClientError>);
   });
 
+  it("shows the backend setup field message instead of a login validation message", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ success: false, code: "SETUP_VALIDATION_ERROR", message: "رقم هاتف المركز غير صحيح. استخدم رقمًا مثل 01012345678" }), { status: 422, headers: { "content-type": "application/json" } })));
+    await expect(api("/public/setup", { method: "POST", body: "{}" })).rejects.toMatchObject({ code: "REQUEST_FAILED", message: "رقم هاتف المركز غير صحيح. استخدم رقمًا مثل 01012345678" });
+  });
+
   it("maps structured authentication failures to their Arabic message", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
       success: false,
@@ -45,3 +50,4 @@ describe("desktop API client", () => {
     await expect(api("/auth/login")).rejects.toMatchObject({ code: "INVALID_REPAIR_CENTER", message: "رمز مركز الصيانة غير صحيح" });
   });
 });
+
