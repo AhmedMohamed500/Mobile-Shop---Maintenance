@@ -3,7 +3,7 @@ export interface WhatsappProvider {
 }
 
 export class MockWhatsappProvider implements WhatsappProvider {
-  async send(): Promise<{ providerMessageId: string }> {
+  async send(_input: { recipient: string; templateKey: string; variables: Record<string, unknown> }): Promise<{ providerMessageId: string }> {
     return { providerMessageId: `mock_${crypto.randomUUID()}` };
   }
 }

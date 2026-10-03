@@ -50,29 +50,52 @@ enum UnlockKind {
   PATTERN
 }
 
+enum QuoteStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  SUPERSEDED
+}
+
+enum QuoteDecisionType {
+  APPROVED
+  REJECTED
+}
+
+enum RepairNoteType {
+  DIAGNOSTIC
+  INTERNAL
+}
+
 model Tenant {
-  id            String         @id @default(uuid()) @db.Uuid
-  name          String
-  slug          String         @unique
-  phone         String?
-  whatsapp      String?
-  address       String?
-  logoUrl       String?
-  primaryColor  String         @default("#0f766e")
-  receiptFooter String?
-  timezone      String         @default("Africa/Cairo")
-  currency      String         @default("EGP")
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
-  branches      Branch[]
-  users         User[]
-  roles         Role[]
-  customers     Customer[]
-  brands        DeviceBrand[]
-  faultPresets  FaultPreset[]
-  repairOrders  RepairOrder[]
-  subscriptions Subscription[]
-  auditLogs     AuditLog[]
+  id                     String         @id @default(uuid()) @db.Uuid
+  name                   String
+  slug                   String         @unique
+  phone                  String?
+  whatsapp               String?
+  address                String?
+  logoUrl                String?
+  primaryColor           String         @default("#0f766e")
+  receiptFooter          String?
+  receiptPaperWidth      String         @default("80mm")
+  thermalPrinterSettings Json?
+  labelPrinterSettings   Json?
+  whatsappSettings       Json?
+  workflowSettings       Json?
+  messageTemplates       Json?
+  timezone               String         @default("Africa/Cairo")
+  currency               String         @default("EGP")
+  createdAt              DateTime       @default(now())
+  updatedAt              DateTime       @updatedAt
+  branches               Branch[]
+  users                  User[]
+  roles                  Role[]
+  customers              Customer[]
+  brands                 DeviceBrand[]
+  faultPresets           FaultPreset[]
+  repairOrders           RepairOrder[]
+  subscriptions          Subscription[]
+  auditLogs              AuditLog[]
 }
 
 model Branch {
@@ -92,19 +115,24 @@ model Branch {
 }
 
 model User {
-  id             String                @id @default(uuid()) @db.Uuid
-  tenantId       String                @db.Uuid
-  tenant         Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  branchId       String?               @db.Uuid
-  branch         Branch?               @relation(fields: [branchId], references: [id])
-  name           String
-  email          String
-  passwordHash   String
-  isActive       Boolean               @default(true)
-  roles          UserRole[]
-  createdRepairs RepairOrder[]         @relation("CreatedBy")
-  statusChanges  RepairStatusHistory[]
-  auditLogs      AuditLog[]
+  id                    String                @id @default(uuid()) @db.Uuid
+  tenantId              String                @db.Uuid
+  tenant                Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  branchId              String?               @db.Uuid
+  branch                Branch?               @relation(fields: [branchId], references: [id])
+  name                  String
+  email                 String
+  passwordHash          String
+  isActive              Boolean               @default(true)
+  roles                 UserRole[]
+  createdRepairs        RepairOrder[]         @relation("CreatedBy")
+  statusChanges         RepairStatusHistory[]
+  auditLogs             AuditLog[]
+  createdQuotes         RepairQuote[]         @relation("QuoteCreatedBy")
+  repairNotes           RepairNote[]
+  technicianAssignments RepairAssignment[]    @relation("AssignedTechnician")
+  createdAssignments    RepairAssignment[]    @relation("AssignedBy")
+  createdPayments       Payment[]             @relation("PaymentCreatedBy")
 
   @@unique([tenantId, email])
   @@index([tenantId, branchId])
@@ -153,8 +181,11 @@ model Customer {
   name            String
   phoneNormalized String
   phoneDisplay    String
+  whatsappPhone   String?
   isRegular       Boolean       @default(false)
+  notes           String?
   createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
   repairs         RepairOrder[]
 
   @@unique([tenantId, phoneNormalized])
@@ -218,6 +249,9 @@ model RepairOrder {
   payments         Payment[]
   printJobs        PrintJob[]
   whatsappMessages WhatsappMessage[]
+  quotes           RepairQuote[]
+  notes            RepairNote[]
+  assignments      RepairAssignment[]
 
   @@unique([tenantId, repairNumber])
   @@index([tenantId, branchId, status])
@@ -240,11 +274,68 @@ model RepairStatusHistory {
   fromStatus    RepairStatus?
   toStatus      RepairStatus
   reason        String?
-  changedById   String        @db.Uuid
-  changedBy     User          @relation(fields: [changedById], references: [id])
+  changedById   String?       @db.Uuid
+  changedBy     User?         @relation(fields: [changedById], references: [id])
   createdAt     DateTime      @default(now())
 
   @@index([repairOrderId, createdAt])
+}
+
+model RepairQuote {
+  id                String               @id @default(uuid()) @db.Uuid
+  repairOrderId     String               @db.Uuid
+  repairOrder       RepairOrder          @relation(fields: [repairOrderId], references: [id], onDelete: Cascade)
+  version           Int
+  amount            Decimal              @db.Decimal(12, 2)
+  diagnosis         String
+  customerNote      String?
+  status            QuoteStatus          @default(PENDING)
+  approvalTokenHash String               @unique
+  createdById       String               @db.Uuid
+  createdBy         User                 @relation("QuoteCreatedBy", fields: [createdById], references: [id])
+  createdAt         DateTime             @default(now())
+  decidedAt         DateTime?
+  decision          RepairQuoteDecision?
+
+  @@unique([repairOrderId, version])
+  @@index([repairOrderId, status, createdAt])
+}
+
+model RepairQuoteDecision {
+  id            String            @id @default(uuid()) @db.Uuid
+  repairQuoteId String            @unique @db.Uuid
+  repairQuote   RepairQuote       @relation(fields: [repairQuoteId], references: [id], onDelete: Cascade)
+  decision      QuoteDecisionType
+  channel       String
+  createdAt     DateTime          @default(now())
+}
+
+model RepairNote {
+  id            String         @id @default(uuid()) @db.Uuid
+  repairOrderId String         @db.Uuid
+  repairOrder   RepairOrder    @relation(fields: [repairOrderId], references: [id], onDelete: Cascade)
+  authorId      String         @db.Uuid
+  author        User           @relation(fields: [authorId], references: [id])
+  type          RepairNoteType
+  body          String
+  createdAt     DateTime       @default(now())
+
+  @@index([repairOrderId, createdAt])
+}
+
+model RepairAssignment {
+  id            String      @id @default(uuid()) @db.Uuid
+  repairOrderId String      @db.Uuid
+  repairOrder   RepairOrder @relation(fields: [repairOrderId], references: [id], onDelete: Cascade)
+  technicianId  String      @db.Uuid
+  technician    User        @relation("AssignedTechnician", fields: [technicianId], references: [id])
+  assignedById  String      @db.Uuid
+  assignedBy    User        @relation("AssignedBy", fields: [assignedById], references: [id])
+  assignedAt    DateTime    @default(now())
+  endedAt       DateTime?
+
+  @@index([repairOrderId, endedAt])
+  @@index([technicianId, endedAt])
 }
 
 model Payment {
@@ -256,6 +347,8 @@ model Payment {
   reference         String?
   createdAt         DateTime    @default(now())
   reversedPaymentId String?     @db.Uuid
+  createdById       String?     @db.Uuid
+  createdBy         User?       @relation("PaymentCreatedBy", fields: [createdById], references: [id])
 
   @@index([repairOrderId, createdAt])
 }
