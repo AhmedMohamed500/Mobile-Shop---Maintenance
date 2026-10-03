@@ -62,3 +62,9 @@ On Windows, the local printer bridge discovers installed printers and prints per
 Reception, workshop, and delivery screens poll a tenant/branch-scoped durable event cursor and fall back to periodic refresh on connection errors. The connectivity indicator shows whether the API is reachable.
 
 The mock WhatsApp provider remains the default. To use Meta Cloud API, set `WHATSAPP_PROVIDER=meta` and the `META_WHATSAPP_*` backend variables from `.env.example`. Configure Meta to call `GET/POST /api/webhooks/whatsapp`; the backend validates the verify token and SHA-256 signature, stores webhook events idempotently, and tracks sent/delivered/read/failed states.
+
+## Cash shifts and financial reports
+
+Users with the financial permissions can open and close a branch cash shift, record expenses and manual income/refunds, approve a closed shift, and inspect daily, monthly, or custom-range reports. Repair deposits and final collections create append-oriented cash transactions with their payment method. Reports keep revenue, collections, expenses, refunds, outstanding balances, and cash movement separate. The finance screen can export its current summary as UTF-8 CSV.
+
+The Phase 2 implementation and verification record is in `MOBILE_REPAIR_ERP_PHASE2_REPORT.md`.
