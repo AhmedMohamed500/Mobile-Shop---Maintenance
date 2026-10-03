@@ -1,6 +1,6 @@
 import type { RepairStatus } from "@repair/domain";
 
-export type Page = "dashboard" | "intake" | "workshop" | "delivery" | "customers" | "settings" | "users";
+export type Page = "dashboard" | "intake" | "workshop" | "delivery" | "customers" | "settings" | "users" | "finance";
 export type CatalogItem = { id: string; name: string; isActive?: boolean; sortOrder?: number };
 export type Catalog = { brands: CatalogItem[]; faults: CatalogItem[]; branches: CatalogItem[] };
 export type Customer = { id: string; name: string; phoneDisplay: string; phoneNormalized: string; whatsappPhone?: string; isRegular: boolean; notes?: string; repairs?: Pick<Repair, "id" | "repairNumber" | "status" | "model" | "createdAt">[] };

@@ -5,7 +5,7 @@ import { z } from "zod";
 import { requireAuth, requirePermission } from "../lib/auth.js";
 import { httpError } from "./shared.js";
 import { config } from "../config.js";
-import { MockWhatsappProvider } from "../services/adapters.js";
+import { MetaWhatsappProvider, MockWhatsappProvider, type WhatsappProvider } from "../services/adapters.js";
 
 const catalogBody = z.object({ name: z.string().trim().min(2).max(100), sortOrder: z.number().int().min(0).max(10000).default(0), isActive: z.boolean().default(true) });
 
@@ -103,7 +103,7 @@ export function registerSettingsRoutes(app: FastifyInstance, prisma: PrismaClien
   });
   app.get("/whatsapp/outbox", async (request) => {
     const auth = await requireAuth(request); requirePermission(auth, "whatsapp.manage");
-    return prisma.whatsappMessage.findMany({ where: { tenantId: auth.tenantId }, select: { id: true, repairOrderId: true, type: true, recipient: true, templateKey: true, variables: true, status: true, attempts: true, failureReason: true, sentAt: true, createdAt: true }, orderBy: { createdAt: "desc" }, take: 200 });
+    return prisma.whatsappMessage.findMany({ where: { tenantId: auth.tenantId }, select: { id: true, repairOrderId: true, type: true, recipient: true, templateKey: true, variables: true, status: true, attempts: true, failureReason: true, sentAt: true, deliveredAt: true, readAt: true, createdAt: true }, orderBy: { createdAt: "desc" }, take: 200 });
   });
 
   app.get("/settings/branches", async (request) => {
@@ -133,11 +133,17 @@ export function registerSettingsRoutes(app: FastifyInstance, prisma: PrismaClien
 
   app.get("/settings/subscription", async (request) => { const auth = await requireAuth(request); requirePermission(auth, "settings.manage"); return prisma.subscription.findFirst({ where: { tenantId: auth.tenantId }, include: { plan: true }, orderBy: { startsAt: "desc" } }); });
 
+  app.post("/whatsapp/:id/resend", async (request) => {
+    const auth = await requireAuth(request); requirePermission(auth, "whatsapp.manage"); const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
+    const message = await prisma.whatsappMessage.findFirst({ where: { id, tenantId: auth.tenantId, status: "FAILED" } }); if (!message) throw httpError(404, "الرسالة الفاشلة غير موجودة");
+    const updated = await prisma.whatsappMessage.update({ where: { id }, data: { status: "QUEUED", failureReason: null } });
+    await prisma.auditLog.create({ data: { tenantId: auth.tenantId, actorId: auth.userId, action: "whatsapp.message_requeued", entityType: "whatsapp_message", entityId: id } }); return updated;
+  });
   app.post("/whatsapp/process", async (request) => {
     const auth = await requireAuth(request); requirePermission(auth, "whatsapp.manage");
     const jobs = await prisma.whatsappMessage.findMany({ where: { tenantId: auth.tenantId, status: { in: ["QUEUED", "FAILED"] }, attempts: { lt: 5 } }, orderBy: { createdAt: "asc" }, take: 50 });
-    const provider = config.WHATSAPP_PROVIDER === "mock" ? new MockWhatsappProvider() : null; let sent = 0; let failed = 0;
-    for (const job of jobs) { await prisma.whatsappMessage.update({ where: { id: job.id }, data: { status: "PROCESSING", attempts: { increment: 1 } } }); try { if (!provider) throw new Error("Meta provider is not configured"); const result = await provider.send({ recipient: job.recipient, templateKey: job.templateKey, variables: job.variables as Record<string, unknown> }); await prisma.whatsappMessage.update({ where: { id: job.id }, data: { status: "SENT", providerMessageId: result.providerMessageId, sentAt: new Date(), failureReason: null } }); sent++; } catch (error) { await prisma.whatsappMessage.update({ where: { id: job.id }, data: { status: "FAILED", failureReason: (error as Error).message.slice(0, 500) } }); failed++; } }
+    const provider: WhatsappProvider = config.WHATSAPP_PROVIDER === "mock" ? new MockWhatsappProvider() : new MetaWhatsappProvider({ accessToken: config.META_WHATSAPP_ACCESS_TOKEN, phoneNumberId: config.META_WHATSAPP_PHONE_NUMBER_ID, graphVersion: config.META_WHATSAPP_GRAPH_VERSION, languageCode: config.META_WHATSAPP_LANGUAGE_CODE }); let sent = 0; let failed = 0;
+    for (const job of jobs) { await prisma.whatsappMessage.update({ where: { id: job.id }, data: { status: "PROCESSING", attempts: { increment: 1 } } }); try { const result = await provider.send({ recipient: job.recipient, templateKey: job.templateKey, variables: job.variables as Record<string, unknown> }); await prisma.whatsappMessage.update({ where: { id: job.id }, data: { status: "SENT", providerMessageId: result.providerMessageId, sentAt: new Date(), failureReason: null } }); sent++; } catch (error) { await prisma.whatsappMessage.update({ where: { id: job.id }, data: { status: "FAILED", failureReason: (error as Error).message.slice(0, 500) } }); failed++; } }
     return { processed: jobs.length, sent, failed };
   });
 }

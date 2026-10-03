@@ -24,5 +24,11 @@ export const config = z.object({
   API_PORT: z.coerce.number().default(4000),
   PUBLIC_TRACKING_URL: z.string().url().default("http://localhost:5174/r"),
   WHATSAPP_PROVIDER: z.enum(["mock", "meta"]).default("mock"),
+  META_WHATSAPP_ACCESS_TOKEN: z.string().default(""),
+  META_WHATSAPP_PHONE_NUMBER_ID: z.string().default(""),
+  META_WHATSAPP_VERIFY_TOKEN: z.string().default(""),
+  META_WHATSAPP_APP_SECRET: z.string().default(""),
+  META_WHATSAPP_GRAPH_VERSION: z.string().default("v22.0"),
+  META_WHATSAPP_LANGUAGE_CODE: z.string().default("ar"),
   CORS_ORIGINS: z.string().default(localOrigins),
 }).parse({ ...testDefaults, ...process.env });

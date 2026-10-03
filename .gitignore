@@ -13,3 +13,4 @@ apps/desktop/src-tauri/target/
 .env*
 !.env.example
 apps/api/generated/
+!/.env.tauri

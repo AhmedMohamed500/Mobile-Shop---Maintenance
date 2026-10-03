@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { api } from "./api";
 import type { Session } from "./auth";
 import type { CatalogItem } from "./types";
+import { PrinterWorkstationSettings } from "./PrinterSettings";
 
 type Branch = { id: string; name: string; code: string; address?: string; phone?: string; isActive: boolean };
 type Subscription = { status: string; billingCycle: string; startsAt: string; endsAt?: string; plan: { name: string; limits: Record<string, unknown> } } | null;
@@ -24,6 +25,7 @@ export function Settings({ session }: { session: Session }) {
     <CatalogEditor title="ماركات الأجهزة" items={brands} kind="brands" add={add} patch={patchCatalog} rename={rename} /><CatalogEditor title="أنواع الأعطال" items={faults} kind="faults" add={add} patch={patchCatalog} rename={rename} />
     <section className="panel"><h2>واتساب</h2><p>قيد الانتظار: {outbox.filter((x) => x.status === "QUEUED").length} · تم الإرسال: {outbox.filter((x) => x.status === "SENT").length} · فشل: {outbox.filter((x) => x.status === "FAILED").length}</p><button className="primary" onClick={processOutbox}>معالجة قائمة الرسائل</button></section>
     <section className="panel"><h2>الاشتراك</h2>{subscription ? <><strong>{subscription.plan.name}</strong><p>{subscription.status} · {subscription.billingCycle}</p><small>بداية الاشتراك {new Date(subscription.startsAt).toLocaleDateString("ar-EG")}</small></> : <p>لا يوجد اشتراك مسجل</p>}</section>
+    <PrinterWorkstationSettings session={session} />
   </section></>;
 }
 

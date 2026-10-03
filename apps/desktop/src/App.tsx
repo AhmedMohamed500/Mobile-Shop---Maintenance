@@ -9,6 +9,9 @@ import type { Page } from "./types";
 import { Users } from "./Users";
 import { Workshop } from "./Workshop";
 import { PublicPortal } from "./PublicPortal";
+import { ConnectivityStatus } from "./ConnectivityStatus";
+import { PrintAgent } from "./printer";
+import { Finance } from "./Finance";
 
 export function App() {
   const [session, setSession] = useState<Session | null>(null);
@@ -21,12 +24,13 @@ export function App() {
     { page: "delivery" as const, label: "تسليم جهاز", permission: "delivery.complete" },
     { page: "customers" as const, label: "العملاء", permission: "customer.manage" },
     { page: "workshop" as const, label: "ورشة الصيانة", permission: "workshop.access" },
+    { page: "finance" as const, label: "الصندوق والتقارير", permission: "cash.manage" },
     { page: "settings" as const, label: "الإعدادات", permission: "settings.manage" },
     { page: "users" as const, label: "المستخدمون", permission: "user.manage" },
   ].filter((item) => permissions.includes(item.permission));
   return <div className="app" style={{ "--brand": session.tenant.primaryColor } as React.CSSProperties}>
-    <aside className="sidebar"><div><div className="brand-mark">ص</div><div><strong>{session.tenant.name}</strong><small>{session.user.name}</small></div></div><nav>{nav.map((item) => <button key={item.page} className={page === item.page ? "active" : ""} onClick={() => setPage(item.page)}>{item.label}</button>)}</nav><button className="signout" onClick={() => { setSession(null); setPage("dashboard"); }}>تسجيل الخروج</button></aside>
-    <main>{page === "dashboard" && <Dashboard session={session} navigate={setPage} />}{page === "intake" && <Intake session={session} onDone={() => setPage("dashboard")} />}{page === "delivery" && <Delivery session={session} />}{page === "customers" && <Customers session={session} />}{page === "workshop" && <Workshop session={session} />}{page === "settings" && <Settings session={session} />}{page === "users" && <Users session={session} />}</main>
+    <aside className="sidebar"><div><div className="brand-mark">ص</div><div><strong>{session.tenant.name}</strong><small>{session.user.name}</small><small>{session.branch ? `${session.branch.name} · ${session.branch.code}` : "كل الفروع"}</small></div></div><ConnectivityStatus /><nav>{nav.map((item) => <button key={item.page} className={page === item.page ? "active" : ""} onClick={() => setPage(item.page)}>{item.label}</button>)}</nav><button className="signout" onClick={() => { setSession(null); setPage("dashboard"); }}>تسجيل الخروج</button></aside>
+    <PrintAgent session={session} /><main>{page === "dashboard" && <Dashboard session={session} navigate={setPage} />}{page === "intake" && <Intake session={session} onDone={() => setPage("dashboard")} />}{page === "delivery" && <Delivery session={session} />}{page === "customers" && <Customers session={session} />}{page === "workshop" && <Workshop session={session} />}{page === "finance" && <Finance session={session} />}{page === "settings" && <Settings session={session} />}{page === "users" && <Users session={session} />}</main>
   </div>;
 }
 

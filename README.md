@@ -53,4 +53,12 @@ Generate a valid unlock encryption key outside throwaway environments:
 node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
 ```
 
-The Tauri shell is in `apps/desktop/src-tauri`. Print jobs and safe receipt/label payloads are persisted and reprintable. A physical printer still requires the local Tauri printer bridge. The mock WhatsApp provider can process the outbox without Meta credentials; production Meta credentials/webhooks are a separate provider integration.
+## Windows desktop, printers, and live updates
+
+The Tauri shell is in `apps/desktop/src-tauri`. Use `pnpm --filter @repair/desktop tauri:dev` for development and `pnpm --filter @repair/desktop tauri:build` for NSIS/MSI builds. The committed `.env.tauri` points the desktop production build at the HTTPS production API; keep secrets in the backend environment only.
+
+On Windows, the local printer bridge discovers installed printers and prints persisted receipt/label jobs. Configure receipt and label printers per workstation from Settings, including 58/80mm paper, copy count, and automatic printing. Unlock PINs, passwords, and patterns are excluded from printer payloads and the native command whitelist. Failed jobs remain available for retry and do not roll back repair workflow.
+
+Reception, workshop, and delivery screens poll a tenant/branch-scoped durable event cursor and fall back to periodic refresh on connection errors. The connectivity indicator shows whether the API is reachable.
+
+The mock WhatsApp provider remains the default. To use Meta Cloud API, set `WHATSAPP_PROVIDER=meta` and the `META_WHATSAPP_*` backend variables from `.env.example`. Configure Meta to call `GET/POST /api/webhooks/whatsapp`; the backend validates the verify token and SHA-256 signature, stores webhook events idempotently, and tracks sent/delivered/read/failed states.

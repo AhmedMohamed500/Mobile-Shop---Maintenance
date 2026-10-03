@@ -4,15 +4,17 @@ import { api } from "./api";
 import type { Session } from "./auth";
 import type { Page, Repair } from "./types";
 import { formatMoney } from "./types";
+import { useRepairEvents } from "./useRepairEvents";
 
 type DashboardData = { received: number; ready: number; recentRepairs: Repair[]; readyRepairs: (Repair & { paid: number; finalCharge: number })[] };
 
 export function Dashboard({ session, navigate }: { session: Session; navigate: (page: Page) => void }) {
+  const eventRevision = useRepairEvents(session, ["repair.created", "repair.status.changed", "repair.ready_for_delivery", "repair.delivered"]);
   const [data, setData] = useState<DashboardData | null>(null);
   const [results, setResults] = useState<Repair[]>([]);
   const [query, setQuery] = useState("");
   const [error, setError] = useState("");
-  useEffect(() => { api<DashboardData>("/dashboard/reception", {}, session.token).then(setData).catch((e) => setError(e.message)); }, [session.token]);
+  useEffect(() => { api<DashboardData>("/dashboard/reception", {}, session.token).then(setData).catch((e) => setError(e.message)); }, [session.token, eventRevision]);
   useEffect(() => {
     if (query.trim().length < 2) return setResults([]);
     const timer = setTimeout(() => { const path = query.includes("/r/") ? `/repairs/scan?code=${encodeURIComponent(query)}` : `/repairs?search=${encodeURIComponent(query)}`; api<Repair[] | Repair>(path, {}, session.token).then((value) => setResults(Array.isArray(value) ? value : [value])).catch((e) => { setResults([]); setError(e.message); }); }, 250);

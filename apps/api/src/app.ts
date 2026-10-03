@@ -1,5 +1,6 @@
 import Fastify from "fastify";
 import cors from "@fastify/cors";
+import rawBody from "fastify-raw-body";
 import { PrismaClient } from "../generated/client/index.js";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
@@ -9,6 +10,9 @@ import { registerReceptionRoutes } from "./routes/reception.js";
 import { registerWorkflowRoutes } from "./routes/workflow.js";
 import { registerPublicRoutes } from "./routes/public.js";
 import { registerSettingsRoutes } from "./routes/settings.js";
+import { registerWhatsappWebhookRoutes } from "./routes/whatsapp.js";
+import { registerEventRoutes } from "./routes/events.js";
+import { registerFinanceRoutes } from "./routes/finance.js";
 
 export function buildApp(prisma = new PrismaClient()) {
   const app = Fastify({ logger: true, bodyLimit: 2_000_000 });
@@ -47,5 +51,11 @@ export function buildApp(prisma = new PrismaClient()) {
   registerWorkflowRoutes(app, prisma);
   registerPublicRoutes(app, prisma);
   registerSettingsRoutes(app, prisma);
+  app.register(async (webhookApp) => {
+    await webhookApp.register(rawBody, { field: "rawBody", global: false, encoding: false, runFirst: true });
+    registerWhatsappWebhookRoutes(webhookApp, prisma);
+  });
+  registerEventRoutes(app, prisma);
+  registerFinanceRoutes(app, prisma);
   return app;
 }

@@ -75,4 +75,19 @@ describe("POST /auth/login", () => {
     expect(response.json()).toEqual({ success: false, code: "INVALID_REPAIR_CENTER", message: "رمز مركز الصيانة غير صحيح" });
     expect(prisma.user.findFirst).not.toHaveBeenCalled();
   });
-});
+
+  it("rejects a suspended tenant with a structured JSON error", async () => {
+    const { app } = await loginFixture({ subscriptionStatus: "SUSPENDED" });
+    const response = await app.inject({ method: "POST", url: "/auth/login", payload: credentials });
+    await app.close();
+    expect(response.statusCode).toBe(403);
+    expect(response.json()).toMatchObject({ success: false, code: "TENANT_SUSPENDED" });
+  });
+
+  it("rejects an expired subscription with a structured JSON error", async () => {
+    const { app } = await loginFixture({ subscriptionStatus: "EXPIRED" });
+    const response = await app.inject({ method: "POST", url: "/auth/login", payload: credentials });
+    await app.close();
+    expect(response.statusCode).toBe(403);
+    expect(response.json()).toMatchObject({ success: false, code: "SUBSCRIPTION_EXPIRED" });
+  });});

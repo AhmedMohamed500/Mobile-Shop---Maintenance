@@ -75,7 +75,7 @@ export const permissions = [
   "repair.quote.create", "repair.quote.approve_override", "repair.unlock.view", "repair.unlock.edit",
   "customer.manage", "workshop.access", "delivery.complete", "payment.create", "payment.refund",
   "report.financial.view", "settings.manage", "brand.manage", "fault.manage", "user.manage",
-  "role.manage", "printer.manage", "whatsapp.manage", "audit.view",
+  "role.manage", "printer.manage", "whatsapp.manage", "audit.view", "cash.manage", "cash.approve", "expense.manage",
 ] as const;
 
 export type Permission = (typeof permissions)[number];

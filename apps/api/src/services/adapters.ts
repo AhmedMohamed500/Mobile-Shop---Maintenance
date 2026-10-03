@@ -8,12 +8,25 @@ export class MockWhatsappProvider implements WhatsappProvider {
   }
 }
 
-export interface PrinterAdapter {
-  print(job: { kind: string; payload: unknown }): Promise<void>;
+export type MetaWhatsappConfig = { accessToken: string; phoneNumberId: string; graphVersion: string; languageCode: string };
+
+export class MetaWhatsappProvider implements WhatsappProvider {
+  constructor(private readonly settings: MetaWhatsappConfig) {}
+
+  async send(input: { recipient: string; templateKey: string; variables: Record<string, unknown> }): Promise<{ providerMessageId: string }> {
+    if (!this.settings.accessToken || !this.settings.phoneNumberId) throw new Error("Meta WhatsApp provider is not configured");
+    const parameters = Object.values(input.variables).filter((value) => ["string", "number", "boolean"].includes(typeof value)).map((value) => ({ type: "text", text: String(value) }));
+    const response = await fetch(`https://graph.facebook.com/${this.settings.graphVersion}/${this.settings.phoneNumberId}/messages`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${this.settings.accessToken}`, "content-type": "application/json" },
+      body: JSON.stringify({ messaging_product: "whatsapp", to: input.recipient.replace(/^\+/, ""), type: "template", template: { name: input.templateKey, language: { code: this.settings.languageCode }, ...(parameters.length ? { components: [{ type: "body", parameters }] } : {}) } }),
+    });
+    const body = await response.json() as { messages?: { id: string }[]; error?: { message?: string; code?: number } };
+    if (!response.ok || !body.messages?.[0]?.id) throw new Error(`Meta WhatsApp send failed (${body.error?.code ?? response.status}): ${body.error?.message ?? "unknown error"}`);
+    return { providerMessageId: body.messages[0].id };
+  }
 }
 
-export class LocalDesktopPrinterAdapter implements PrinterAdapter {
-  async print(): Promise<void> {
-    throw new Error("Desktop printer bridge is not connected");
-  }
+export interface PrinterAdapter {
+  print(job: { kind: string; payload: unknown }): Promise<void>;
 }

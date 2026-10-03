@@ -20,7 +20,7 @@ function quoteFixture(decision: "APPROVED" | "REJECTED" | null = null) {
 describe("public quote approval", () => {
   it("records approval once and advances the repair", async () => {
     const quote = quoteFixture();
-    const tx = { repairQuote: { update: vi.fn() }, repairQuoteDecision: { create: vi.fn() }, repairOrder: { update: vi.fn() }, repairStatusHistory: { create: vi.fn() }, whatsappMessage: { create: vi.fn() }, auditLog: { create: vi.fn() } };
+    const tx = { repairQuote: { update: vi.fn() }, repairQuoteDecision: { create: vi.fn() }, repairOrder: { update: vi.fn() }, repairStatusHistory: { create: vi.fn() }, whatsappMessage: { create: vi.fn() }, auditLog: { create: vi.fn() }, systemEvent: { create: vi.fn() } };
     const prisma = { repairQuote: { findUnique: vi.fn().mockResolvedValue(quote) }, $transaction: vi.fn(async (callback) => callback(tx)) } as unknown as PrismaClient;
     const app = buildApp(prisma);
     const token = "valid-public-approval-token-value";
@@ -68,7 +68,7 @@ describe("tenant boundaries and delivery", () => {
   });
 
   it("collects the exact balance, delivers, and purges unlock secrets", async () => {
-    const tx = { payment: { create: vi.fn() }, repairOrder: { update: vi.fn() }, repairStatusHistory: { create: vi.fn() }, printJob: { create: vi.fn() }, whatsappMessage: { create: vi.fn() }, auditLog: { create: vi.fn() } };
+    const tx = { payment: { create: vi.fn().mockResolvedValue({ id: "payment-1" }) }, cashShift: { findFirst: vi.fn().mockResolvedValue(null) }, cashTransaction: { create: vi.fn() }, repairOrder: { update: vi.fn() }, repairStatusHistory: { create: vi.fn() }, printJob: { create: vi.fn() }, whatsappMessage: { create: vi.fn() }, auditLog: { create: vi.fn() }, systemEvent: { create: vi.fn() } };
     const prisma = {
       idempotencyKey: { findUnique: vi.fn().mockResolvedValue(null), create: vi.fn(), update: vi.fn(), deleteMany: vi.fn() },
       repairOrder: { findFirst: vi.fn().mockResolvedValue({ id: repairId, tenantId, branchId, repairNumber: "REP-2026-000001", status: "READY_FOR_DELIVERY", model: "A54", estimatedCost: 900, customer: { name: "أحمد", phoneNormalized: "+201001234567", whatsappPhone: null }, brand: { name: "Samsung" }, branch: { name: "الرئيسي" }, payments: [{ amount: 200, kind: "DEPOSIT" }], quotes: [] }) },
@@ -107,7 +107,7 @@ describe("reception and workshop permissions", () => {
     const prior = { repairId, repairNumber: "REP-2026-000001", trackingUrl: "https://example.test/r/token", printJobsQueued: 2, whatsappQueued: true };
     const prisma = { idempotencyKey: { findUnique: vi.fn().mockResolvedValue({ requestHash: "", response: prior }) } } as unknown as PrismaClient;
     const token = await issueToken({ userId, tenantId, branchId, permissions: ["repair.intake.create"] });
-    const payload = { branchId, customer: { name: "عميل اختبار", phone: "01012345678", isRegular: false }, device: { brandId: "66666666-6666-4666-8666-666666666666", model: "A54" }, reportedFault: "عطل في الشاشة", faultPresetIds: [], estimatedCost: "500.00", deposit: "100.00" };
+    const payload = { branchId, customer: { name: "عميل اختبار", phone: "01012345678", isRegular: false }, device: { brandId: "66666666-6666-4666-8666-666666666666", model: "A54" }, reportedFault: "عطل في الشاشة", faultPresetIds: [], estimatedCost: "500.00", deposit: "100.00", paymentMethod: "CASH" };
     const { createHash } = await import("node:crypto");
     (prisma.idempotencyKey.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({ requestHash: createHash("sha256").update(JSON.stringify(payload)).digest("hex"), response: prior });
     const app = buildApp(prisma);

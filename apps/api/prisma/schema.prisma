@@ -45,6 +45,35 @@ enum PaymentKind {
   REVERSAL
 }
 
+enum PaymentMethod {
+  CASH
+  VODAFONE_CASH
+  INSTAPAY
+  CARD
+  BANK_TRANSFER
+  OTHER
+}
+
+enum CashTransactionType {
+  DEPOSIT
+  COLLECTION
+  MANUAL_INCOME
+  EXPENSE
+  REFUND
+  REVERSAL
+}
+
+enum CashDirection {
+  IN
+  OUT
+}
+
+enum CashShiftStatus {
+  OPEN
+  CLOSED
+  APPROVED
+}
+
 enum UnlockKind {
   PIN
   PATTERN
@@ -68,25 +97,25 @@ enum RepairNoteType {
 }
 
 model Tenant {
-  id                     String         @id @default(uuid()) @db.Uuid
+  id                     String                 @id @default(uuid()) @db.Uuid
   name                   String
-  slug                   String         @unique
+  slug                   String                 @unique
   phone                  String?
   whatsapp               String?
   address                String?
   logoUrl                String?
-  primaryColor           String         @default("#0f766e")
+  primaryColor           String                 @default("#0f766e")
   receiptFooter          String?
-  receiptPaperWidth      String         @default("80mm")
+  receiptPaperWidth      String                 @default("80mm")
   thermalPrinterSettings Json?
   labelPrinterSettings   Json?
   whatsappSettings       Json?
   workflowSettings       Json?
   messageTemplates       Json?
-  timezone               String         @default("Africa/Cairo")
-  currency               String         @default("EGP")
-  createdAt              DateTime       @default(now())
-  updatedAt              DateTime       @updatedAt
+  timezone               String                 @default("Africa/Cairo")
+  currency               String                 @default("EGP")
+  createdAt              DateTime               @default(now())
+  updatedAt              DateTime               @updatedAt
   branches               Branch[]
   users                  User[]
   roles                  Role[]
@@ -96,19 +125,29 @@ model Tenant {
   repairOrders           RepairOrder[]
   subscriptions          Subscription[]
   auditLogs              AuditLog[]
+  systemEvents           SystemEvent[]
+  whatsappWebhookEvents  WhatsappWebhookEvent[]
+  cashShifts             CashShift[]
+  cashTransactions       CashTransaction[]
+  expenseCategories      ExpenseCategory[]
+  expenses               Expense[]
 }
 
 model Branch {
-  id       String        @id @default(uuid()) @db.Uuid
-  tenantId String        @db.Uuid
-  tenant   Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  name     String
-  code     String
-  address  String?
-  phone    String?
-  isActive Boolean       @default(true)
-  users    User[]
-  repairs  RepairOrder[]
+  id               String            @id @default(uuid()) @db.Uuid
+  tenantId         String            @db.Uuid
+  tenant           Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name             String
+  code             String
+  address          String?
+  phone            String?
+  isActive         Boolean           @default(true)
+  users            User[]
+  repairs          RepairOrder[]
+  systemEvents     SystemEvent[]
+  cashShifts       CashShift[]
+  cashTransactions CashTransaction[]
+  expenses         Expense[]
 
   @@unique([tenantId, code])
   @@index([tenantId, isActive])
@@ -133,6 +172,11 @@ model User {
   technicianAssignments RepairAssignment[]    @relation("AssignedTechnician")
   createdAssignments    RepairAssignment[]    @relation("AssignedBy")
   createdPayments       Payment[]             @relation("PaymentCreatedBy")
+  openedCashShifts      CashShift[]           @relation("CashShiftOpenedBy")
+  closedCashShifts      CashShift[]           @relation("CashShiftClosedBy")
+  approvedCashShifts    CashShift[]           @relation("CashShiftApprovedBy")
+  cashTransactions      CashTransaction[]
+  createdExpenses       Expense[]
 
   @@unique([tenantId, email])
   @@index([tenantId, branchId])
@@ -339,16 +383,18 @@ model RepairAssignment {
 }
 
 model Payment {
-  id                String      @id @default(uuid()) @db.Uuid
-  repairOrderId     String      @db.Uuid
-  repairOrder       RepairOrder @relation(fields: [repairOrderId], references: [id])
-  amount            Decimal     @db.Decimal(12, 2)
+  id                String           @id @default(uuid()) @db.Uuid
+  repairOrderId     String           @db.Uuid
+  repairOrder       RepairOrder      @relation(fields: [repairOrderId], references: [id])
+  amount            Decimal          @db.Decimal(12, 2)
   kind              PaymentKind
+  paymentMethod     PaymentMethod    @default(CASH)
   reference         String?
-  createdAt         DateTime    @default(now())
-  reversedPaymentId String?     @db.Uuid
-  createdById       String?     @db.Uuid
-  createdBy         User?       @relation("PaymentCreatedBy", fields: [createdById], references: [id])
+  createdAt         DateTime         @default(now())
+  reversedPaymentId String?          @db.Uuid
+  createdById       String?          @db.Uuid
+  createdBy         User?            @relation("PaymentCreatedBy", fields: [createdById], references: [id])
+  cashTransaction   CashTransaction?
 
   @@index([repairOrderId, createdAt])
 }
@@ -361,10 +407,14 @@ model PrintJob {
   payload       Json
   status        JobStatus   @default(QUEUED)
   attempts      Int         @default(0)
+  printerName   String?
+  workstationId String?
   failureReason String?
+  printedAt     DateTime?
   createdAt     DateTime    @default(now())
 
   @@index([status, createdAt])
+  @@index([workstationId, status])
 }
 
 model WhatsappMessage {
@@ -383,6 +433,8 @@ model WhatsappMessage {
   attempts          Int         @default(0)
   failureReason     String?
   sentAt            DateTime?
+  deliveredAt       DateTime?
+  readAt            DateTime?
   createdAt         DateTime    @default(now())
 
   @@index([tenantId, status, createdAt])
@@ -438,4 +490,124 @@ model Subscription {
   endsAt       DateTime?
 
   @@index([tenantId, status])
+}
+
+model SystemEvent {
+  id        String   @id @default(uuid()) @db.Uuid
+  tenantId  String   @db.Uuid
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  branchId  String?  @db.Uuid
+  branch    Branch?  @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  type      String
+  entityId  String
+  payload   Json
+  createdAt DateTime @default(now())
+
+  @@index([tenantId, branchId, createdAt])
+  @@index([tenantId, type, createdAt])
+}
+
+model WhatsappWebhookEvent {
+  id              String   @id @default(uuid()) @db.Uuid
+  tenantId        String   @db.Uuid
+  tenant          Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  providerEventId String   @unique
+  eventType       String
+  payload         Json
+  createdAt       DateTime @default(now())
+
+  @@index([tenantId, createdAt])
+}
+
+model CashShift {
+  id             String            @id @default(uuid()) @db.Uuid
+  tenantId       String            @db.Uuid
+  tenant         Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  branchId       String            @db.Uuid
+  branch         Branch            @relation(fields: [branchId], references: [id])
+  openedById     String            @db.Uuid
+  openedBy       User              @relation("CashShiftOpenedBy", fields: [openedById], references: [id])
+  openingBalance Decimal           @db.Decimal(12, 2)
+  openedAt       DateTime          @default(now())
+  status         CashShiftStatus   @default(OPEN)
+  closedById     String?           @db.Uuid
+  closedBy       User?             @relation("CashShiftClosedBy", fields: [closedById], references: [id])
+  closedAt       DateTime?
+  expectedCash   Decimal?          @db.Decimal(12, 2)
+  actualCash     Decimal?          @db.Decimal(12, 2)
+  variance       Decimal?          @db.Decimal(12, 2)
+  notes          String?
+  approvedById   String?           @db.Uuid
+  approvedBy     User?             @relation("CashShiftApprovedBy", fields: [approvedById], references: [id])
+  approvedAt     DateTime?
+  transactions   CashTransaction[]
+
+  @@index([tenantId, branchId, openedAt])
+  @@index([tenantId, branchId, status])
+}
+
+model CashTransaction {
+  id                    String              @id @default(uuid()) @db.Uuid
+  tenantId              String              @db.Uuid
+  tenant                Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  branchId              String              @db.Uuid
+  branch                Branch              @relation(fields: [branchId], references: [id])
+  shiftId               String?             @db.Uuid
+  shift                 CashShift?          @relation(fields: [shiftId], references: [id])
+  employeeId            String              @db.Uuid
+  employee              User                @relation(fields: [employeeId], references: [id])
+  type                  CashTransactionType
+  direction             CashDirection
+  amount                Decimal             @db.Decimal(12, 2)
+  paymentMethod         PaymentMethod
+  sourceType            String
+  sourceId              String?
+  reference             String?
+  notes                 String?
+  paymentId             String?             @unique @db.Uuid
+  payment               Payment?            @relation(fields: [paymentId], references: [id])
+  reversedTransactionId String?             @db.Uuid
+  reversedTransaction   CashTransaction?    @relation("CashTransactionReversal", fields: [reversedTransactionId], references: [id])
+  reversals             CashTransaction[]   @relation("CashTransactionReversal")
+  expense               Expense?
+  createdAt             DateTime            @default(now())
+
+  @@index([tenantId, branchId, createdAt])
+  @@index([shiftId, createdAt])
+  @@index([sourceType, sourceId])
+}
+
+model ExpenseCategory {
+  id        String    @id @default(uuid()) @db.Uuid
+  tenantId  String    @db.Uuid
+  tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name      String
+  isActive  Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  expenses  Expense[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId, isActive])
+}
+
+model Expense {
+  id                String          @id @default(uuid()) @db.Uuid
+  tenantId          String          @db.Uuid
+  tenant            Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  branchId          String          @db.Uuid
+  branch            Branch          @relation(fields: [branchId], references: [id])
+  categoryId        String          @db.Uuid
+  category          ExpenseCategory @relation(fields: [categoryId], references: [id])
+  amount            Decimal         @db.Decimal(12, 2)
+  paymentMethod     PaymentMethod
+  description       String
+  attachmentUrl     String?
+  incurredAt        DateTime
+  createdById       String          @db.Uuid
+  createdBy         User            @relation(fields: [createdById], references: [id])
+  cashTransactionId String          @unique @db.Uuid
+  cashTransaction   CashTransaction @relation(fields: [cashTransactionId], references: [id])
+  createdAt         DateTime        @default(now())
+
+  @@index([tenantId, branchId, incurredAt])
 }

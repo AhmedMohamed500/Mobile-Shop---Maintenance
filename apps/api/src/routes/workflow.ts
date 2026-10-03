@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { Prisma, PrismaClient } from "../../generated/client/index.js";
+import { PaymentMethod, Prisma, PrismaClient } from "../../generated/client/index.js";
 import { z } from "zod";
 import { assertTransition } from "@repair/domain";
 import { requireAuth, requirePermission } from "../lib/auth.js";
@@ -20,7 +20,7 @@ export function registerWorkflowRoutes(app: FastifyInstance, prisma: PrismaClien
       await tx.repairStatusHistory.create({ data: { repairOrderId: id, fromStatus: repair.status, toStatus: body.status, reason: body.reason, changedById: auth.userId } });
       const message = body.status === "UNDER_REPAIR" ? { type: "UNDER_REPAIR", key: "under_repair" } : body.status === "READY_FOR_DELIVERY" ? { type: "READY_FOR_DELIVERY", key: "ready_for_delivery" } : undefined;
       if (message) await tx.whatsappMessage.create({ data: { repairOrderId: id, tenantId: auth.tenantId, branchId: repair.branchId, type: message.type, recipient: repair.customer.whatsappPhone ?? repair.customer.phoneNormalized, templateKey: message.key, variables: { repairNumber: repair.repairNumber, status: body.status, ...(body.status === "READY_FOR_DELIVERY" ? { remaining: Math.max(0, approvedCharge(repair.quotes, Number(repair.estimatedCost)) - paidTotal(repair.payments)) } : {}) }, idempotencyKey: `repair:${id}:status:${body.status}:${updated.updatedAt.toISOString()}` } });
-      await tx.auditLog.create({ data: { tenantId: auth.tenantId, actorId: auth.userId, action: "repair.status_changed", entityType: "repair_order", entityId: id, before: { status: repair.status }, after: { status: body.status } } });
+      await tx.auditLog.create({ data: { tenantId: auth.tenantId, actorId: auth.userId, action: "repair.status_changed", entityType: "repair_order", entityId: id, before: { status: repair.status }, after: { status: body.status } } }); await tx.systemEvent.create({ data: { tenantId: auth.tenantId, branchId: repair.branchId, type: body.status === "READY_FOR_DELIVERY" ? "repair.ready_for_delivery" : "repair.status.changed", entityId: id, payload: { repairNumber: repair.repairNumber, from: repair.status, to: body.status } } });
       return updated;
     });
   });
@@ -35,7 +35,7 @@ export function registerWorkflowRoutes(app: FastifyInstance, prisma: PrismaClien
     return prisma.$transaction(async (tx) => {
       const updated = await tx.repairOrder.update({ where: { id }, data: { status: body.status } });
       await tx.repairStatusHistory.create({ data: { repairOrderId: id, fromStatus: repair.status, toStatus: body.status, reason: `تصحيح إداري: ${body.reason}`, changedById: auth.userId } });
-      await tx.auditLog.create({ data: { tenantId: auth.tenantId, actorId: auth.userId, action: "repair.status_corrected", entityType: "repair_order", entityId: id, before: { status: repair.status }, after: { status: body.status, reason: body.reason } } });
+      await tx.auditLog.create({ data: { tenantId: auth.tenantId, actorId: auth.userId, action: "repair.status_corrected", entityType: "repair_order", entityId: id, before: { status: repair.status }, after: { status: body.status, reason: body.reason } } }); await tx.systemEvent.create({ data: { tenantId: auth.tenantId, branchId: repair.branchId, type: "repair.status.changed", entityId: id, payload: { from: repair.status, to: body.status, correction: true } } });
       return updated;
     });
   });
@@ -85,7 +85,7 @@ export function registerWorkflowRoutes(app: FastifyInstance, prisma: PrismaClien
         await tx.repairStatusHistory.create({ data: { repairOrderId: id, fromStatus: repair.status, toStatus: "AWAITING_CUSTOMER_APPROVAL", reason: `عرض سعر رقم ${version}`, changedById: auth.userId } });
       }
       await tx.whatsappMessage.create({ data: { repairOrderId: id, tenantId: auth.tenantId, branchId: repair.branchId, type: "WAITING_APPROVAL", recipient: repair.customer.whatsappPhone ?? repair.customer.phoneNormalized, templateKey: "waiting_approval", variables: { repairNumber: repair.repairNumber, diagnosis: body.diagnosis, amount: body.amount, approvalUrl }, idempotencyKey: `repair:${id}:quote:${version}` } });
-      await tx.auditLog.create({ data: { tenantId: auth.tenantId, actorId: auth.userId, action: "repair.quote_created", entityType: "repair_quote", entityId: created.id, after: { repairOrderId: id, version, amount: body.amount } } });
+      await tx.auditLog.create({ data: { tenantId: auth.tenantId, actorId: auth.userId, action: "repair.quote_created", entityType: "repair_quote", entityId: created.id, after: { repairOrderId: id, version, amount: body.amount } } }); await tx.systemEvent.create({ data: { tenantId: auth.tenantId, branchId: repair.branchId, type: "quote.created", entityId: id, payload: { repairNumber: repair.repairNumber, version } } });
       return created;
     });
     return reply.status(201).send({ id: quote.id, version, amount: Number(quote.amount), status: quote.status, approvalUrl });
@@ -94,7 +94,7 @@ export function registerWorkflowRoutes(app: FastifyInstance, prisma: PrismaClien
   app.post("/repairs/:id/deliver", async (request, reply) => {
     const auth = await requireAuth(request); requirePermission(auth, "delivery.complete"); requirePermission(auth, "payment.create");
     const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
-    const body = z.object({ collectedAmount: moneyInput.default("0"), reference: z.string().max(120).optional() }).parse(request.body);
+    const body = z.object({ collectedAmount: moneyInput.default("0"), paymentMethod: z.nativeEnum(PaymentMethod).default("CASH"), reference: z.string().max(120).optional() }).parse(request.body);
     const key = z.string().min(8).max(200).parse(request.headers["idempotency-key"]); const requestHash = hashRequest(body);
     const prior = await prisma.idempotencyKey.findUnique({ where: { tenantId_key: { tenantId: auth.tenantId, key } } });
     if (prior) { if (prior.requestHash !== requestHash) return reply.status(409).send({ error: "مفتاح العملية مستخدم لطلب مختلف" }); if (prior.response) return prior.response; return reply.status(409).send({ error: "العملية قيد التنفيذ" }); }
@@ -107,13 +107,17 @@ export function registerWorkflowRoutes(app: FastifyInstance, prisma: PrismaClien
       const paid = paidTotal(repair.payments); const remaining = Math.max(0, finalCharge - paid); const collected = Number(new Prisma.Decimal(body.collectedAmount));
       if (Math.abs(collected - remaining) > 0.001) throw httpError(422, `المبلغ المطلوب تحصيله هو ${remaining.toFixed(2)}`);
       const result = await prisma.$transaction(async (tx) => {
-        if (collected > 0) await tx.payment.create({ data: { repairOrderId: id, amount: new Prisma.Decimal(body.collectedAmount), kind: "COLLECTION", reference: body.reference, createdById: auth.userId } });
+        if (collected > 0) {
+          const payment = await tx.payment.create({ data: { repairOrderId: id, amount: new Prisma.Decimal(body.collectedAmount), kind: "COLLECTION", paymentMethod: body.paymentMethod, reference: body.reference, createdById: auth.userId } });
+          const shift = await tx.cashShift.findFirst({ where: { tenantId: auth.tenantId, branchId: repair.branchId, status: "OPEN" } });
+          await tx.cashTransaction.create({ data: { tenantId: auth.tenantId, branchId: repair.branchId, shiftId: shift?.id, employeeId: auth.userId, type: "COLLECTION", direction: "IN", amount: new Prisma.Decimal(body.collectedAmount), paymentMethod: body.paymentMethod, sourceType: "repair_payment", sourceId: id, paymentId: payment.id, reference: body.reference } });
+        }
         const deliveredAt = new Date();
         await tx.repairOrder.update({ where: { id }, data: { status: "DELIVERED", deliveredAt, unlockKind: null, unlockCiphertext: null, unlockIv: null, unlockAuthTag: null } });
         await tx.repairStatusHistory.create({ data: { repairOrderId: id, fromStatus: repair.status, toStatus: "DELIVERED", reason: "تم التسليم والتحصيل", changedById: auth.userId } });
         await tx.printJob.create({ data: { repairOrderId: id, kind: "DELIVERY_RECEIPT", payload: { paperWidth: "80mm", repairNumber: repair.repairNumber, customer: repair.customer.name, device: `${repair.brand.name} ${repair.model}`, finalCharge, previouslyPaid: paid, collected, remaining: 0, deliveredAt } } });
         await tx.whatsappMessage.create({ data: { repairOrderId: id, tenantId: auth.tenantId, branchId: repair.branchId, type: "DELIVERED", recipient: repair.customer.whatsappPhone ?? repair.customer.phoneNormalized, templateKey: "delivered", variables: { repairNumber: repair.repairNumber, deliveredAt }, idempotencyKey: `repair:${id}:delivered` } });
-        await tx.auditLog.create({ data: { tenantId: auth.tenantId, actorId: auth.userId, action: "repair.delivered", entityType: "repair_order", entityId: id, before: { status: repair.status, paid }, after: { status: "DELIVERED", finalCharge, collected, unlockPurged: true } } });
+        await tx.auditLog.create({ data: { tenantId: auth.tenantId, actorId: auth.userId, action: "repair.delivered", entityType: "repair_order", entityId: id, before: { status: repair.status, paid }, after: { status: "DELIVERED", finalCharge, collected, unlockPurged: true } } }); await tx.systemEvent.create({ data: { tenantId: auth.tenantId, branchId: repair.branchId, type: "repair.delivered", entityId: id, payload: { repairNumber: repair.repairNumber, status: "DELIVERED" } } });
         return { success: true, repairId: id, repairNumber: repair.repairNumber, status: "DELIVERED", finalCharge, paid: paid + collected, remaining: 0 };
       });
       await prisma.idempotencyKey.update({ where: { tenantId_key: { tenantId: auth.tenantId, key } }, data: { response: result } }); return result;
