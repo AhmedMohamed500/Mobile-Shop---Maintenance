@@ -103,7 +103,27 @@ export function registerSettingsRoutes(app: FastifyInstance, prisma: PrismaClien
   });
   app.get("/settings/whatsapp/status", async (request) => {
     const auth = await requireAuth(request); requirePermission(auth, "whatsapp.manage");
-    return whatsappReadiness({ provider: config.WHATSAPP_PROVIDER, accessToken: config.META_WHATSAPP_ACCESS_TOKEN, phoneNumberId: config.META_WHATSAPP_PHONE_NUMBER_ID, appSecret: config.META_WHATSAPP_APP_SECRET, verifyToken: config.META_WHATSAPP_VERIFY_TOKEN }, process.env.NODE_ENV === "production");
+    const readiness = whatsappReadiness({ provider: config.WHATSAPP_PROVIDER, accessToken: config.META_WHATSAPP_ACCESS_TOKEN, phoneNumberId: config.META_WHATSAPP_PHONE_NUMBER_ID, appSecret: config.META_WHATSAPP_APP_SECRET, verifyToken: config.META_WHATSAPP_VERIFY_TOKEN }, process.env.NODE_ENV === "production");
+    return { ...readiness, webhookUrl: `${new URL(config.PUBLIC_TRACKING_URL).origin}/api/webhooks/whatsapp` };
+  });
+
+  app.post("/settings/whatsapp/test-config", async (request) => {
+    const auth = await requireAuth(request); requirePermission(auth, "whatsapp.manage");
+    const readiness = whatsappReadiness({ provider: config.WHATSAPP_PROVIDER, accessToken: config.META_WHATSAPP_ACCESS_TOKEN, phoneNumberId: config.META_WHATSAPP_PHONE_NUMBER_ID, appSecret: config.META_WHATSAPP_APP_SECRET, verifyToken: config.META_WHATSAPP_VERIFY_TOKEN }, process.env.NODE_ENV === "production");
+    if (config.WHATSAPP_PROVIDER !== "meta" || !readiness.canSend) throw httpError(503, "إعداد Meta WhatsApp غير مكتمل");
+    const provider = new MetaWhatsappProvider({ accessToken: config.META_WHATSAPP_ACCESS_TOKEN, phoneNumberId: config.META_WHATSAPP_PHONE_NUMBER_ID, graphVersion: config.META_WHATSAPP_GRAPH_VERSION, languageCode: config.META_WHATSAPP_LANGUAGE_CODE });
+    try { return { success: true, status: "META_CONNECTED", ...(await provider.testConnection()) }; }
+    catch { throw httpError(502, "تعذر التحقق من اتصال Meta. راجع بيانات الاعتماد وحالة الرقم"); }
+  });
+
+  app.post("/settings/whatsapp/test-message", async (request) => {
+    const auth = await requireAuth(request); requirePermission(auth, "whatsapp.manage");
+    const body = z.object({ recipient: z.string().trim().min(8).max(30), templateKey: z.string().trim().regex(/^[a-z0-9_]{2,120}$/) }).parse(request.body);
+    const readiness = whatsappReadiness({ provider: config.WHATSAPP_PROVIDER, accessToken: config.META_WHATSAPP_ACCESS_TOKEN, phoneNumberId: config.META_WHATSAPP_PHONE_NUMBER_ID, appSecret: config.META_WHATSAPP_APP_SECRET, verifyToken: config.META_WHATSAPP_VERIFY_TOKEN }, process.env.NODE_ENV === "production");
+    if (config.WHATSAPP_PROVIDER !== "meta" || !readiness.canSend) throw httpError(503, "إعداد Meta WhatsApp غير مكتمل");
+    const provider = new MetaWhatsappProvider({ accessToken: config.META_WHATSAPP_ACCESS_TOKEN, phoneNumberId: config.META_WHATSAPP_PHONE_NUMBER_ID, graphVersion: config.META_WHATSAPP_GRAPH_VERSION, languageCode: config.META_WHATSAPP_LANGUAGE_CODE });
+    try { const result = await provider.send({ recipient: body.recipient, templateKey: body.templateKey, variables: {} }); await prisma.auditLog.create({ data: { tenantId: auth.tenantId, actorId: auth.userId, action: "whatsapp.test_sent", entityType: "tenant", entityId: auth.tenantId, after: { recipient: body.recipient, templateKey: body.templateKey, providerMessageId: result.providerMessageId } } }); return { success: true, status: "SENT", ...result }; }
+    catch { throw httpError(502, "رفضت Meta رسالة الاختبار. راجع القالب والرقم وإعدادات الحساب"); }
   });
 
   app.get("/settings/workstations", async (request) => {
@@ -112,7 +132,7 @@ export function registerSettingsRoutes(app: FastifyInstance, prisma: PrismaClien
   });
   app.patch("/settings/workstations/:id", async (request) => {
     const auth = await requireAuth(request); requirePermission(auth, "settings.manage"); const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
-    const body = z.object({ name: z.string().trim().min(2).max(80).optional(), type: z.enum(["RECEPTION", "WORKSHOP", "CASHIER", "MANAGER"]).optional(), defaultPage: z.enum(["dashboard", "intake", "workshop", "delivery", "finance"]).optional(), isActive: z.boolean().optional() }).parse(request.body);
+    const body = z.object({ name: z.string().trim().min(2).max(80).optional(), type: z.enum(["RECEPTION", "RECEPTION_DELIVERY", "WORKSHOP", "WORKSHOP_MANAGEMENT", "CASHIER", "ACCOUNTING", "MANAGER", "MANAGEMENT", "MULTIPURPOSE"]).optional(), defaultPage: z.enum(["dashboard", "intake", "workshop", "delivery", "finance"]).optional(), isActive: z.boolean().optional() }).parse(request.body);
     if (!(await prisma.workstation.findFirst({ where: { id, tenantId: auth.tenantId } }))) throw httpError(404, "محطة العمل غير موجودة");
     return prisma.workstation.update({ where: { id }, data: body });
   });
@@ -164,5 +184,3 @@ export function registerSettingsRoutes(app: FastifyInstance, prisma: PrismaClien
     return { processed: jobs.length, sent, failed };
   });
 }
-
-

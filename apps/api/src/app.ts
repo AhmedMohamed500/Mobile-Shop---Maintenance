@@ -14,6 +14,7 @@ import { registerWhatsappWebhookRoutes } from "./routes/whatsapp.js";
 import { registerEventRoutes } from "./routes/events.js";
 import { registerFinanceRoutes } from "./routes/finance.js";
 import { registerOnboardingRoutes } from "./routes/onboarding.js";
+import { registerExportRoutes } from "./routes/exports.js";
 
 export function buildApp(prisma = new PrismaClient()) {
   const app = Fastify({ logger: true, bodyLimit: 2_000_000 });
@@ -60,5 +61,6 @@ export function buildApp(prisma = new PrismaClient()) {
   });
   registerEventRoutes(app, prisma);
   registerFinanceRoutes(app, prisma);
+  registerExportRoutes(app, prisma);
   return app;
 }

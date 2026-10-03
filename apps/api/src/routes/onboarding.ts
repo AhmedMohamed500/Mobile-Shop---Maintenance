@@ -9,7 +9,7 @@ import { httpError } from "./shared.js";
 
 function validPhone(value: string) { try { normalizePhone(value); return true; } catch { return false; } }
 const phoneSchema = z.string().trim().min(8).max(30).refine(validPhone, "INVALID_PHONE");
-const workstationSchema = z.object({ name: z.string().trim().min(2).max(80), type: z.enum(["RECEPTION", "WORKSHOP", "CASHIER", "MANAGER"]), count: z.number().int().min(1).max(20).default(1), defaultPage: z.enum(["dashboard", "intake", "workshop", "delivery", "finance"]).default("dashboard") });
+const workstationSchema = z.object({ name: z.string().trim().min(2).max(80), type: z.enum(["RECEPTION", "RECEPTION_DELIVERY", "WORKSHOP", "WORKSHOP_MANAGEMENT", "CASHIER", "ACCOUNTING", "MANAGER", "MANAGEMENT", "MULTIPURPOSE"]), count: z.number().int().min(1).max(20).default(1), defaultPage: z.enum(["dashboard", "intake", "workshop", "delivery", "finance"]).default("dashboard") });
 const branchSchema = z.object({ name: z.string().trim().min(2).max(120), code: z.string().trim().regex(/^[A-Za-z0-9_-]{2,20}$/).transform((x) => x.toUpperCase()), address: z.string().trim().max(300).optional(), phone: phoneSchema.optional(), whatsapp: phoneSchema.optional(), workstations: z.array(workstationSchema).min(1).max(12) });
 const setupSchema = z.object({
   owner: z.object({ fullName: z.string().trim().min(3).max(120), username: z.string().trim().toLowerCase().regex(/^[a-z0-9._-]{3,40}$/), email: z.string().trim().toLowerCase().email(), phone: phoneSchema, whatsapp: phoneSchema, password: z.string().min(10).max(128).regex(/[A-Z]/).regex(/[a-z]/).regex(/[0-9]/) }),
@@ -75,4 +75,3 @@ export function registerOnboardingRoutes(app: FastifyInstance, prisma: PrismaCli
     return reply.status(201).send(response);
   });
 }
-

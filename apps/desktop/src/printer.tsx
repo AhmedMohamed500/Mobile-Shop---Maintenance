@@ -4,7 +4,7 @@ import { api } from "./api";
 import type { Session } from "./auth";
 
 export type PrinterInfo = { name: string; isDefault: boolean; isOffline: boolean };
-export type WorkstationPrinterConfig = { workstationId: string; receiptPrinter: string; labelPrinter: string; paperSize: "58mm" | "80mm"; labelWidthMm: number; labelHeightMm: number; copies: number; autoPrintReception: boolean; autoPrintDelivery: boolean; autoPrintLabel: boolean };
+export type WorkstationPrinterConfig = { workstationId: string; receiptPrinter: string; labelPrinter: string; paperSize: "58mm" | "80mm"; labelWidthMm: number; labelHeightMm: number; copies: number; autoPrintReception: boolean; autoPrintDelivery: boolean; autoPrintLabel: boolean; defaultPage?: "dashboard" | "intake" | "workshop" | "delivery" | "finance" };
 type PendingJob = { id: string; kind: "RECEIPT" | "LABEL" | "DELIVERY_RECEIPT"; payload: Record<string, unknown> };
 
 export function isTauriDesktop() { return "__TAURI_INTERNALS__" in window; }
@@ -34,5 +34,3 @@ export function PrintAgent({ session }: { session: Session }) {
   }, [session]);
   return notice ? <div className="print-notice error" role="alert">{notice}<button onClick={() => setNotice("")}>×</button></div> : null;
 }
-
-

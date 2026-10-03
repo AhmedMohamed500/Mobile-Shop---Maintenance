@@ -94,3 +94,17 @@ export async function api<T>(path: string, options: RequestInit = {}, token?: st
 
   return body as T;
 }
+export async function downloadCsv(path: string, token: string): Promise<Blob> {
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+  const url = `${apiBaseUrl}${normalizedPath}`;
+  let response: Response;
+  try { response = await fetch(url, { headers: { authorization: `Bearer ${token}` } }); }
+  catch (cause) { developmentLog("Export request failed", { url, cause }); throw new ApiClientError("API_UNAVAILABLE"); }
+  const contentType = response.headers.get("content-type")?.toLowerCase() ?? "";
+  if (!response.ok) {
+    const body = contentType.includes("application/json") ? await response.json().catch(() => null) as Record<string, unknown> | null : null;
+    throw new ApiClientError(response.status >= 500 ? "SERVER_ERROR" : "REQUEST_FAILED", response.status, typeof body?.message === "string" ? body.message : undefined);
+  }
+  if (!contentType.includes("text/csv")) { developmentLog("Expected CSV response", { url, status: response.status, contentType }); throw malformedResponseError(response.status); }
+  return response.blob();
+}
