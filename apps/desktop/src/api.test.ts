@@ -18,7 +18,7 @@ describe("desktop API client", () => {
     }), { status: 200, headers: { "content-type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(login({ tenant: "demo", email: "reception@demo.local", password: "Demo@12345" })).resolves.toMatchObject({ success: true, token: "token" });
+    await expect(login({ tenant: "demo", identity: "reception@demo.local", password: "Demo@12345" })).resolves.toMatchObject({ success: true, token: "token" });
     expect(fetchMock).toHaveBeenCalledWith("/api/auth/login", expect.objectContaining({ method: "POST" }));
   });
 

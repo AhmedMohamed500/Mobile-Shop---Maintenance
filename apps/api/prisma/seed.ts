@@ -37,10 +37,13 @@ async function main() {
     ["فني الصيانة", "technician@demo.local", "technician"],
     ["مدير المركز", "manager@demo.local", "manager"],
   ] as const) {
-    const user = await prisma.user.upsert({ where: { tenantId_email: { tenantId: tenant.id, email } }, update: { branchId: branch.id, name, passwordHash, isActive: true }, create: { tenantId: tenant.id, branchId: branch.id, name, email, passwordHash } });
+    const username = role === "receptionist" ? "reception" : role;
+    const user = await prisma.user.upsert({ where: { tenantId_email: { tenantId: tenant.id, email } }, update: { branchId: branch.id, name, username, passwordHash, isActive: true }, create: { tenantId: tenant.id, branchId: branch.id, name, email, username, passwordHash } });
     userIds[role] = user.id;
     await prisma.userRole.upsert({ where: { userId_roleId: { userId: user.id, roleId: roles[role]! } }, update: {}, create: { userId: user.id, roleId: roles[role]! } });
   }
+
+  await prisma.workstation.upsert({ where: { branchId_name: { branchId: branch.id, name: "استقبال رئيسي" } }, update: { isActive: true }, create: { tenantId: tenant.id, branchId: branch.id, name: "استقبال رئيسي", type: "RECEPTION", defaultPage: "dashboard" } });
 
   await prisma.deviceBrand.createMany({ data: ["Apple", "Samsung", "Xiaomi", "Oppo", "Realme", "Huawei", "Nokia"].map((name, sortOrder) => ({ tenantId: tenant.id, name, sortOrder })), skipDuplicates: true });
   await prisma.faultPreset.createMany({ data: ["الشاشة", "البطارية", "الشحن", "سوكت الشحن", "الكاميرا", "السماعة", "الميكروفون", "الشبكة", "البوردة", "السوفت وير", "مشكلة مياه", "لا يعمل"].map((name, sortOrder) => ({ tenantId: tenant.id, name, sortOrder })), skipDuplicates: true });
@@ -91,3 +94,4 @@ async function main() {
 }
 
 main().finally(() => prisma.$disconnect());
+

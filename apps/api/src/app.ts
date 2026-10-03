@@ -13,6 +13,7 @@ import { registerSettingsRoutes } from "./routes/settings.js";
 import { registerWhatsappWebhookRoutes } from "./routes/whatsapp.js";
 import { registerEventRoutes } from "./routes/events.js";
 import { registerFinanceRoutes } from "./routes/finance.js";
+import { registerOnboardingRoutes } from "./routes/onboarding.js";
 
 export function buildApp(prisma = new PrismaClient()) {
   const app = Fastify({ logger: true, bodyLimit: 2_000_000 });
@@ -31,7 +32,7 @@ export function buildApp(prisma = new PrismaClient()) {
   app.get("/health", async () => ({ status: "ok", service: "repair-api" }));
 
   app.post("/auth/login", async (request, reply) => {
-    const parsed = z.object({ email: z.string().email(), password: z.string().min(8), tenant: z.string().trim().min(1) }).safeParse(request.body);
+    const parsed = z.object({ identity: z.string().trim().min(3).optional(), email: z.string().trim().optional(), password: z.string().min(8), tenant: z.string().trim().toLowerCase().min(1) }).refine((value) => Boolean(value.identity || value.email)).safeParse(request.body);
     if (!parsed.success) return reply.status(422).send({ success: false, code: "VALIDATION_ERROR", message: "بيانات تسجيل الدخول غير مكتملة أو غير صحيحة" });
     const body = parsed.data;
     const tenant = await prisma.tenant.findUnique({ where: { slug: body.tenant }, include: { subscriptions: { orderBy: { startsAt: "desc" }, take: 1 } } });
@@ -39,7 +40,8 @@ export function buildApp(prisma = new PrismaClient()) {
     const subscription = tenant.subscriptions[0];
     if (subscription?.status === "SUSPENDED") return reply.status(403).send({ success: false, code: "TENANT_SUSPENDED", message: "تم إيقاف حساب مركز الصيانة. تواصل مع الدعم." });
     if (subscription && (["EXPIRED", "CANCELLED"].includes(subscription.status) || (subscription.endsAt !== null && subscription.endsAt.getTime() < Date.now()))) return reply.status(403).send({ success: false, code: "SUBSCRIPTION_EXPIRED", message: "انتهى اشتراك مركز الصيانة. يرجى تجديد الاشتراك." });
-    const user = await prisma.user.findFirst({ where: { email: body.email.toLowerCase(), tenantId: tenant.id, isActive: true }, include: { roles: { include: { role: { include: { permissions: true } } } }, branch: true } });
+    const identity = (body.identity ?? body.email!).toLowerCase();
+    const user = await prisma.user.findFirst({ where: { tenantId: tenant.id, isActive: true, OR: [{ email: identity }, { username: identity }] }, include: { roles: { include: { role: { include: { permissions: true } } } }, branch: true } });
     if (!user || !(await bcrypt.compare(body.password, user.passwordHash))) return reply.status(401).send({ success: false, code: "INVALID_CREDENTIALS", message: "بيانات تسجيل الدخول غير صحيحة" });
     const permissions = [...new Set(user.roles.flatMap((item) => item.role.permissions.map((permission) => permission.permissionId)))];
     const token = await issueToken({ userId: user.id, tenantId: user.tenantId, branchId: user.branchId, permissions });
@@ -47,6 +49,7 @@ export function buildApp(prisma = new PrismaClient()) {
   });
 
   app.get("/me", async (request) => requireAuth(request));
+  registerOnboardingRoutes(app, prisma);
   registerReceptionRoutes(app, prisma);
   registerWorkflowRoutes(app, prisma);
   registerPublicRoutes(app, prisma);

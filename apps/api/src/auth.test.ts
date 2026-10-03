@@ -23,6 +23,7 @@ async function loginFixture(options: { tenant?: boolean; password?: string; subs
     branchId: "branch-main",
     name: "موظف الاستقبال",
     email: "reception@demo.local",
+    username: "reception",
     passwordHash,
     branch: { id: "branch-main", name: "الفرع الرئيسي", code: "MAIN" },
     roles: [{ role: { permissions: [{ permissionId: "repair.view" }, { permissionId: "repair.intake.create" }] } }],
@@ -34,7 +35,8 @@ async function loginFixture(options: { tenant?: boolean; password?: string; subs
   return { app: buildApp(prisma), prisma };
 }
 
-const credentials = { tenant: "demo", email: "reception@demo.local", password: "Demo@12345" };
+const credentials = { tenant: "demo", email: "reception@demo.local",
+    username: "reception", password: "Demo@12345" };
 
 describe("POST /auth/login", () => {
   it("logs in the seeded demo receptionist and returns JSON", async () => {
@@ -55,6 +57,14 @@ describe("POST /auth/login", () => {
     expect(response.json().token).toEqual(expect.any(String));
   });
 
+
+  it("logs in with the tenant-scoped username", async () => {
+    const { app, prisma } = await loginFixture();
+    const response = await app.inject({ method: "POST", url: "/auth/login", payload: { tenant: "demo", identity: "reception", password: "Demo@12345" } });
+    await app.close();
+    expect(response.statusCode).toBe(200);
+    expect(prisma.user.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ OR: [{ email: "reception" }, { username: "reception" }] }) }));
+  });
   it("returns a JSON authentication error for a wrong password", async () => {
     const { app } = await loginFixture();
     const response = await app.inject({ method: "POST", url: "/auth/login", payload: { ...credentials, password: "Wrong@12345" } });

@@ -103,6 +103,9 @@ model Tenant {
   phone                  String?
   whatsapp               String?
   address                String?
+  governorate            String?
+  city                   String?
+  notes                  String?
   logoUrl                String?
   primaryColor           String                 @default("#0f766e")
   receiptFooter          String?
@@ -114,6 +117,8 @@ model Tenant {
   messageTemplates       Json?
   timezone               String                 @default("Africa/Cairo")
   currency               String                 @default("EGP")
+  defaultWarrantyDays    Int                    @default(30)
+  onboardingCompletedAt  DateTime?
   createdAt              DateTime               @default(now())
   updatedAt              DateTime               @updatedAt
   branches               Branch[]
@@ -131,6 +136,7 @@ model Tenant {
   cashTransactions       CashTransaction[]
   expenseCategories      ExpenseCategory[]
   expenses               Expense[]
+  workstations           Workstation[]
 }
 
 model Branch {
@@ -141,6 +147,8 @@ model Branch {
   code             String
   address          String?
   phone            String?
+  whatsapp         String?
+  isPrimary        Boolean           @default(false)
   isActive         Boolean           @default(true)
   users            User[]
   repairs          RepairOrder[]
@@ -148,6 +156,7 @@ model Branch {
   cashShifts       CashShift[]
   cashTransactions CashTransaction[]
   expenses         Expense[]
+  workstations     Workstation[]
 
   @@unique([tenantId, code])
   @@index([tenantId, isActive])
@@ -161,6 +170,9 @@ model User {
   branch                Branch?               @relation(fields: [branchId], references: [id])
   name                  String
   email                 String
+  username              String?
+  phone                 String?
+  whatsapp              String?
   passwordHash          String
   isActive              Boolean               @default(true)
   roles                 UserRole[]
@@ -179,7 +191,33 @@ model User {
   createdExpenses       Expense[]
 
   @@unique([tenantId, email])
+  @@unique([tenantId, username])
   @@index([tenantId, branchId])
+}
+
+model Workstation {
+  id          String   @id @default(uuid()) @db.Uuid
+  tenantId    String   @db.Uuid
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  branchId    String   @db.Uuid
+  branch      Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  name        String
+  type        String
+  defaultPage String   @default("dashboard")
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([branchId, name])
+  @@index([tenantId, branchId, isActive])
+}
+
+model OnboardingRequest {
+  id             String   @id @default(uuid()) @db.Uuid
+  idempotencyKey String   @unique
+  requestHash    String
+  response       Json?
+  createdAt      DateTime @default(now())
 }
 
 model Role {

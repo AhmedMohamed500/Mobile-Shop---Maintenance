@@ -5,7 +5,7 @@ import { z } from "zod";
 import { requireAuth, requirePermission } from "../lib/auth.js";
 import { httpError } from "./shared.js";
 import { config } from "../config.js";
-import { MetaWhatsappProvider, MockWhatsappProvider, type WhatsappProvider } from "../services/adapters.js";
+import { MetaWhatsappProvider, MockWhatsappProvider, whatsappReadiness, type WhatsappProvider } from "../services/adapters.js";
 
 const catalogBody = z.object({ name: z.string().trim().min(2).max(100), sortOrder: z.number().int().min(0).max(10000).default(0), isActive: z.boolean().default(true) });
 
@@ -101,6 +101,21 @@ export function registerSettingsRoutes(app: FastifyInstance, prisma: PrismaClien
     const { take } = z.object({ take: z.coerce.number().int().min(1).max(200).default(100) }).parse(request.query);
     return prisma.auditLog.findMany({ where: { tenantId: auth.tenantId }, include: { actor: { select: { name: true } } }, orderBy: { createdAt: "desc" }, take });
   });
+  app.get("/settings/whatsapp/status", async (request) => {
+    const auth = await requireAuth(request); requirePermission(auth, "whatsapp.manage");
+    return whatsappReadiness({ provider: config.WHATSAPP_PROVIDER, accessToken: config.META_WHATSAPP_ACCESS_TOKEN, phoneNumberId: config.META_WHATSAPP_PHONE_NUMBER_ID, appSecret: config.META_WHATSAPP_APP_SECRET, verifyToken: config.META_WHATSAPP_VERIFY_TOKEN }, process.env.NODE_ENV === "production");
+  });
+
+  app.get("/settings/workstations", async (request) => {
+    const auth = await requireAuth(request); requirePermission(auth, "settings.manage");
+    return prisma.workstation.findMany({ where: { tenantId: auth.tenantId, ...(auth.branchId ? { branchId: auth.branchId } : {}) }, include: { branch: { select: { name: true, code: true } } }, orderBy: [{ branchId: "asc" }, { name: "asc" }] });
+  });
+  app.patch("/settings/workstations/:id", async (request) => {
+    const auth = await requireAuth(request); requirePermission(auth, "settings.manage"); const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
+    const body = z.object({ name: z.string().trim().min(2).max(80).optional(), type: z.enum(["RECEPTION", "WORKSHOP", "CASHIER", "MANAGER"]).optional(), defaultPage: z.enum(["dashboard", "intake", "workshop", "delivery", "finance"]).optional(), isActive: z.boolean().optional() }).parse(request.body);
+    if (!(await prisma.workstation.findFirst({ where: { id, tenantId: auth.tenantId } }))) throw httpError(404, "محطة العمل غير موجودة");
+    return prisma.workstation.update({ where: { id }, data: body });
+  });
   app.get("/whatsapp/outbox", async (request) => {
     const auth = await requireAuth(request); requirePermission(auth, "whatsapp.manage");
     return prisma.whatsappMessage.findMany({ where: { tenantId: auth.tenantId }, select: { id: true, repairOrderId: true, type: true, recipient: true, templateKey: true, variables: true, status: true, attempts: true, failureReason: true, sentAt: true, deliveredAt: true, readAt: true, createdAt: true }, orderBy: { createdAt: "desc" }, take: 200 });
@@ -141,9 +156,13 @@ export function registerSettingsRoutes(app: FastifyInstance, prisma: PrismaClien
   });
   app.post("/whatsapp/process", async (request) => {
     const auth = await requireAuth(request); requirePermission(auth, "whatsapp.manage");
+    const readiness = whatsappReadiness({ provider: config.WHATSAPP_PROVIDER, accessToken: config.META_WHATSAPP_ACCESS_TOKEN, phoneNumberId: config.META_WHATSAPP_PHONE_NUMBER_ID, appSecret: config.META_WHATSAPP_APP_SECRET, verifyToken: config.META_WHATSAPP_VERIFY_TOKEN }, process.env.NODE_ENV === "production");
+    if (!readiness.canSend) throw httpError(503, "واتساب غير مهيأ للإنتاج. أكمل إعداد Meta أولاً");
     const jobs = await prisma.whatsappMessage.findMany({ where: { tenantId: auth.tenantId, status: { in: ["QUEUED", "FAILED"] }, attempts: { lt: 5 } }, orderBy: { createdAt: "asc" }, take: 50 });
     const provider: WhatsappProvider = config.WHATSAPP_PROVIDER === "mock" ? new MockWhatsappProvider() : new MetaWhatsappProvider({ accessToken: config.META_WHATSAPP_ACCESS_TOKEN, phoneNumberId: config.META_WHATSAPP_PHONE_NUMBER_ID, graphVersion: config.META_WHATSAPP_GRAPH_VERSION, languageCode: config.META_WHATSAPP_LANGUAGE_CODE }); let sent = 0; let failed = 0;
     for (const job of jobs) { await prisma.whatsappMessage.update({ where: { id: job.id }, data: { status: "PROCESSING", attempts: { increment: 1 } } }); try { const result = await provider.send({ recipient: job.recipient, templateKey: job.templateKey, variables: job.variables as Record<string, unknown> }); await prisma.whatsappMessage.update({ where: { id: job.id }, data: { status: "SENT", providerMessageId: result.providerMessageId, sentAt: new Date(), failureReason: null } }); sent++; } catch (error) { await prisma.whatsappMessage.update({ where: { id: job.id }, data: { status: "FAILED", failureReason: (error as Error).message.slice(0, 500) } }); failed++; } }
     return { processed: jobs.length, sent, failed };
   });
 }
+
+

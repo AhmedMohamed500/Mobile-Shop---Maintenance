@@ -22,6 +22,7 @@ export const config = z.object({
   JWT_SECRET: z.string().min(32),
   UNLOCK_ENCRYPTION_KEY: z.string().min(20),
   API_PORT: z.coerce.number().default(4000),
+  PUBLIC_SIGNUP_ENABLED: z.string().default("true").transform((value) => value.toLowerCase() === "true"),
   PUBLIC_TRACKING_URL: z.string().url().default("http://localhost:5174/r"),
   WHATSAPP_PROVIDER: z.enum(["mock", "meta"]).default("mock"),
   META_WHATSAPP_ACCESS_TOKEN: z.string().default(""),

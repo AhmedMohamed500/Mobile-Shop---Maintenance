@@ -55,7 +55,7 @@ export function registerPublicRoutes(app: FastifyInstance, prisma: PrismaClient)
     const { token } = z.object({ token: z.string().min(20).max(200) }).parse(request.params);
     const repair = await prisma.repairOrder.findUnique({
       where: { publicTokenHash: hashToken(token) },
-      include: { tenant: true, branch: true, brand: true, statusHistory: { orderBy: { createdAt: "asc" } }, payments: true, quotes: { orderBy: { version: "desc" } } },
+      include: { tenant: true, branch: true, brand: true, faults: { include: { faultPreset: true } }, statusHistory: { orderBy: { createdAt: "asc" } }, payments: true, quotes: { orderBy: { version: "desc" } } },
     });
     if (!repair) throw httpError(404, "رابط المتابعة غير صالح");
     const paid = paidTotal(repair.payments);
@@ -67,6 +67,7 @@ export function registerPublicRoutes(app: FastifyInstance, prisma: PrismaClient)
       device: { brand: repair.brand.name, model: repair.model },
       status: repair.status,
       reportedFault: repair.reportedFault,
+      selectedFaults: repair.faults.map((item) => item.faultPreset.name),
       estimatedCost: Number(repair.estimatedCost),
       approvedAmount: charge,
       paid,
@@ -79,4 +80,5 @@ export function registerPublicRoutes(app: FastifyInstance, prisma: PrismaClient)
     };
   });
 }
+
 

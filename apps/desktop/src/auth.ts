@@ -9,7 +9,7 @@ export type Session = {
   permissions: string[];
 };
 
-export type LoginCredentials = { tenant: string; email: string; password: string };
+export type LoginCredentials = { tenant: string; identity: string; password: string };
 
 export async function login(credentials: LoginCredentials): Promise<Session> {
   const session = await api<Session>("/auth/login", { method: "POST", body: JSON.stringify(credentials) });

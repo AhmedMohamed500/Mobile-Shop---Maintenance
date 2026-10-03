@@ -30,3 +30,8 @@ export class MetaWhatsappProvider implements WhatsappProvider {
 export interface PrinterAdapter {
   print(job: { kind: string; payload: unknown }): Promise<void>;
 }
+export function whatsappReadiness(settings: { provider: "mock" | "meta"; accessToken: string; phoneNumberId: string; appSecret: string; verifyToken: string }, production: boolean) {
+  const missing = settings.provider === "meta" ? [!settings.accessToken && "access token", !settings.phoneNumberId && "phone number id", !settings.appSecret && "app secret", !settings.verifyToken && "verify token"].filter(Boolean) as string[] : production ? ["WHATSAPP_PROVIDER=meta"] : [];
+  const status = settings.provider === "mock" ? (production ? "NOT_CONFIGURED" : "TEST") : missing.length ? "ERROR" : "META_CONNECTED";
+  return { status, provider: settings.provider, missing, canSend: !production ? true : status === "META_CONNECTED" } as const;
+}
