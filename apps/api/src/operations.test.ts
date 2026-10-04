@@ -63,6 +63,7 @@ describe("Meta WhatsApp webhook", () => {
     const prisma = {
       whatsappMessage: { findFirst: vi.fn().mockResolvedValue(message), update },
       whatsappWebhookEvent: { create: eventCreate },
+      auditLog: { create: vi.fn() },
     } as unknown as PrismaClient;
     const app = buildApp(prisma);
     const body = { entry: [{ changes: [{ value: { statuses: [

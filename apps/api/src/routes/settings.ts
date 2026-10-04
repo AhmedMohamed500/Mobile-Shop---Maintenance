@@ -5,9 +5,12 @@ import { z } from "zod";
 import { requireAuth, requirePermission } from "../lib/auth.js";
 import { httpError } from "./shared.js";
 import { config } from "../config.js";
-import { MetaWhatsappProvider, MockWhatsappProvider, whatsappReadiness, type WhatsappProvider } from "../services/adapters.js";
+import { MetaWhatsappProvider, whatsappReadiness } from "../services/adapters.js";
+import { dispatchWhatsappMessage, templateValidationErrors } from "../services/whatsapp-lifecycle.js";
 
 const catalogBody = z.object({ name: z.string().trim().min(2).max(100), sortOrder: z.number().int().min(0).max(10000).default(0), isActive: z.boolean().default(true) });
+const logoSchema = z.string().max(400000).refine((value) => /^https:\/\//i.test(value) || /^data:image\/(png|jpeg|webp);base64,[a-z0-9+/=]+$/i.test(value), "INVALID_LOGO");
+const messageTemplatesSchema = z.record(z.string(), z.string().trim().min(1).max(3000)).superRefine((templates, context) => { for (const message of templateValidationErrors(templates)) context.addIssue({ code: z.ZodIssueCode.custom, message }); });
 
 export function registerSettingsRoutes(app: FastifyInstance, prisma: PrismaClient) {
   app.get("/settings/brands", async (request) => {
@@ -52,7 +55,7 @@ export function registerSettingsRoutes(app: FastifyInstance, prisma: PrismaClien
   });
   app.patch("/settings/shop", async (request) => {
     const auth = await requireAuth(request); requirePermission(auth, "settings.manage");
-    const body = z.object({ name: z.string().trim().min(2).max(150).optional(), phone: z.string().max(30).nullable().optional(), whatsapp: z.string().max(30).nullable().optional(), address: z.string().max(300).nullable().optional(), logoUrl: z.string().url().max(500).nullable().optional(), primaryColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(), receiptFooter: z.string().max(500).nullable().optional(), receiptPaperWidth: z.enum(["58mm", "80mm"]).optional(), thermalPrinterSettings: z.record(z.string(), z.string()).optional(), labelPrinterSettings: z.record(z.string(), z.string()).optional(), whatsappSettings: z.record(z.string(), z.string()).optional(), workflowSettings: z.record(z.string(), z.string()).optional(), messageTemplates: z.record(z.string(), z.string()).optional(), timezone: z.string().max(100).optional(), currency: z.string().length(3).optional() }).parse(request.body);
+    const body = z.object({ name: z.string().trim().min(2).max(150).optional(), phone: z.string().max(30).nullable().optional(), whatsapp: z.string().max(30).nullable().optional(), address: z.string().max(300).nullable().optional(), logoUrl: logoSchema.nullable().optional(), primaryColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(), receiptFooter: z.string().max(500).nullable().optional(), receiptPaperWidth: z.enum(["58mm", "80mm"]).optional(), thermalPrinterSettings: z.record(z.string(), z.string()).optional(), labelPrinterSettings: z.record(z.string(), z.string()).optional(), whatsappSettings: z.record(z.string(), z.string()).optional(), workflowSettings: z.record(z.string(), z.string()).optional(), messageTemplates: messageTemplatesSchema.optional(), timezone: z.string().max(100).optional(), currency: z.string().length(3).optional() }).parse(request.body);
     const before = await prisma.tenant.findUnique({ where: { id: auth.tenantId } });
     const updated = await prisma.tenant.update({ where: { id: auth.tenantId }, data: body });
     await prisma.auditLog.create({ data: { tenantId: auth.tenantId, actorId: auth.userId, action: "settings.shop_updated", entityType: "tenant", entityId: auth.tenantId, before: before ?? undefined, after: body } });
@@ -138,7 +141,7 @@ export function registerSettingsRoutes(app: FastifyInstance, prisma: PrismaClien
   });
   app.get("/whatsapp/outbox", async (request) => {
     const auth = await requireAuth(request); requirePermission(auth, "whatsapp.manage");
-    return prisma.whatsappMessage.findMany({ where: { tenantId: auth.tenantId }, select: { id: true, repairOrderId: true, type: true, recipient: true, templateKey: true, variables: true, status: true, attempts: true, failureReason: true, sentAt: true, deliveredAt: true, readAt: true, createdAt: true }, orderBy: { createdAt: "desc" }, take: 200 });
+    return prisma.whatsappMessage.findMany({ where: { tenantId: auth.tenantId, ...(auth.branchId ? { branchId: auth.branchId } : {}) }, select: { id: true, repairOrderId: true, type: true, recipient: true, templateKey: true, variables: true, status: true, attempts: true, failureReason: true, sentAt: true, deliveredAt: true, readAt: true, createdAt: true }, orderBy: { createdAt: "desc" }, take: 200 });
   });
 
   app.get("/settings/branches", async (request) => {
@@ -170,7 +173,7 @@ export function registerSettingsRoutes(app: FastifyInstance, prisma: PrismaClien
 
   app.post("/whatsapp/:id/resend", async (request) => {
     const auth = await requireAuth(request); requirePermission(auth, "whatsapp.manage"); const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
-    const message = await prisma.whatsappMessage.findFirst({ where: { id, tenantId: auth.tenantId, status: "FAILED" } }); if (!message) throw httpError(404, "الرسالة الفاشلة غير موجودة");
+    const message = await prisma.whatsappMessage.findFirst({ where: { id, tenantId: auth.tenantId, ...(auth.branchId ? { branchId: auth.branchId } : {}), status: "FAILED" } }); if (!message) throw httpError(404, "الرسالة الفاشلة غير موجودة");
     const updated = await prisma.whatsappMessage.update({ where: { id }, data: { status: "QUEUED", failureReason: null } });
     await prisma.auditLog.create({ data: { tenantId: auth.tenantId, actorId: auth.userId, action: "whatsapp.message_requeued", entityType: "whatsapp_message", entityId: id } }); return updated;
   });
@@ -178,9 +181,9 @@ export function registerSettingsRoutes(app: FastifyInstance, prisma: PrismaClien
     const auth = await requireAuth(request); requirePermission(auth, "whatsapp.manage");
     const readiness = whatsappReadiness({ provider: config.WHATSAPP_PROVIDER, accessToken: config.META_WHATSAPP_ACCESS_TOKEN, phoneNumberId: config.META_WHATSAPP_PHONE_NUMBER_ID, appSecret: config.META_WHATSAPP_APP_SECRET, verifyToken: config.META_WHATSAPP_VERIFY_TOKEN }, process.env.NODE_ENV === "production");
     if (!readiness.canSend) throw httpError(503, "واتساب غير مهيأ للإنتاج. أكمل إعداد Meta أولاً");
-    const jobs = await prisma.whatsappMessage.findMany({ where: { tenantId: auth.tenantId, status: { in: ["QUEUED", "FAILED"] }, attempts: { lt: 5 } }, orderBy: { createdAt: "asc" }, take: 50 });
-    const provider: WhatsappProvider = config.WHATSAPP_PROVIDER === "mock" ? new MockWhatsappProvider() : new MetaWhatsappProvider({ accessToken: config.META_WHATSAPP_ACCESS_TOKEN, phoneNumberId: config.META_WHATSAPP_PHONE_NUMBER_ID, graphVersion: config.META_WHATSAPP_GRAPH_VERSION, languageCode: config.META_WHATSAPP_LANGUAGE_CODE }); let sent = 0; let failed = 0;
-    for (const job of jobs) { await prisma.whatsappMessage.update({ where: { id: job.id }, data: { status: "PROCESSING", attempts: { increment: 1 } } }); try { const result = await provider.send({ recipient: job.recipient, templateKey: job.templateKey, variables: job.variables as Record<string, unknown> }); await prisma.whatsappMessage.update({ where: { id: job.id }, data: { status: "SENT", providerMessageId: result.providerMessageId, sentAt: new Date(), failureReason: null } }); sent++; } catch (error) { await prisma.whatsappMessage.update({ where: { id: job.id }, data: { status: "FAILED", failureReason: (error as Error).message.slice(0, 500) } }); failed++; } }
+    const jobs = await prisma.whatsappMessage.findMany({ where: { tenantId: auth.tenantId, ...(auth.branchId ? { branchId: auth.branchId } : {}), status: { in: ["QUEUED", "FAILED"] }, attempts: { lt: 5 } }, orderBy: { createdAt: "asc" }, take: 50 });
+    let sent = 0; let failed = 0;
+    for (const job of jobs) { const result = await dispatchWhatsappMessage(prisma, job.id, auth.userId); if (result.status === "SENT") sent++; else failed++; }
     return { processed: jobs.length, sent, failed };
   });
 }

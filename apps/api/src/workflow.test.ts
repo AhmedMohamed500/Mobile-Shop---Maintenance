@@ -20,7 +20,7 @@ function quoteFixture(decision: "APPROVED" | "REJECTED" | null = null) {
 describe("public quote approval", () => {
   it("records approval once and advances the repair", async () => {
     const quote = quoteFixture();
-    const tx = { repairQuote: { update: vi.fn() }, repairQuoteDecision: { create: vi.fn() }, repairOrder: { update: vi.fn() }, repairStatusHistory: { create: vi.fn() }, whatsappMessage: { create: vi.fn() }, auditLog: { create: vi.fn() }, systemEvent: { create: vi.fn() } };
+    const tx = { repairQuote: { update: vi.fn() }, repairQuoteDecision: { create: vi.fn() }, repairOrder: { update: vi.fn() }, repairStatusHistory: { create: vi.fn() }, whatsappMessage: { create: vi.fn(), findUnique: vi.fn().mockResolvedValue(null), upsert: vi.fn().mockResolvedValue({ id: "message-1" }) }, auditLog: { create: vi.fn() }, systemEvent: { create: vi.fn() } };
     const prisma = { repairQuote: { findUnique: vi.fn().mockResolvedValue(quote) }, $transaction: vi.fn(async (callback) => callback(tx)) } as unknown as PrismaClient;
     const app = buildApp(prisma);
     const token = "valid-public-approval-token-value";
@@ -68,10 +68,10 @@ describe("tenant boundaries and delivery", () => {
   });
 
   it("collects the exact balance, delivers, and purges unlock secrets", async () => {
-    const tx = { payment: { create: vi.fn().mockResolvedValue({ id: "payment-1" }) }, cashShift: { findFirst: vi.fn().mockResolvedValue(null) }, cashTransaction: { create: vi.fn() }, repairOrder: { update: vi.fn() }, repairStatusHistory: { create: vi.fn() }, printJob: { create: vi.fn() }, whatsappMessage: { create: vi.fn() }, auditLog: { create: vi.fn() }, systemEvent: { create: vi.fn() } };
+    const tx = { payment: { create: vi.fn().mockResolvedValue({ id: "payment-1" }) }, cashShift: { findFirst: vi.fn().mockResolvedValue(null) }, cashTransaction: { create: vi.fn() }, repairOrder: { update: vi.fn() }, repairStatusHistory: { create: vi.fn() }, printJob: { create: vi.fn() }, whatsappMessage: { create: vi.fn(), findUnique: vi.fn().mockResolvedValue(null), upsert: vi.fn().mockResolvedValue({ id: "message-1" }) }, auditLog: { create: vi.fn() }, systemEvent: { create: vi.fn() } };
     const prisma = {
       idempotencyKey: { findUnique: vi.fn().mockResolvedValue(null), create: vi.fn(), update: vi.fn(), deleteMany: vi.fn() },
-      repairOrder: { findFirst: vi.fn().mockResolvedValue({ id: repairId, tenantId, branchId, repairNumber: "REP-2026-000001", status: "READY_FOR_DELIVERY", model: "A54", estimatedCost: 900, customer: { name: "أحمد", phoneNormalized: "+201001234567", whatsappPhone: null }, brand: { name: "Samsung" }, branch: { name: "الرئيسي" }, payments: [{ amount: 200, kind: "DEPOSIT" }], quotes: [] }) },
+      repairOrder: { findFirst: vi.fn().mockResolvedValue({ id: repairId, tenantId, branchId, repairNumber: "REP-2026-000001", status: "READY_FOR_DELIVERY", model: "A54", estimatedCost: 900, customer: { name: "أحمد", phoneNormalized: "+201001234567", whatsappPhone: null }, brand: { name: "Samsung" }, branch: { name: "الرئيسي" }, tenant: { name: "مركز الصيانة", phone: "+201000000000" }, printJobs: [], payments: [{ amount: 200, kind: "DEPOSIT" }], quotes: [] }) },
       $transaction: vi.fn(async (callback) => callback(tx)),
     } as unknown as PrismaClient;
     const token = await issueToken({ userId, tenantId, branchId, permissions: ["delivery.complete", "payment.create"] });
@@ -135,5 +135,21 @@ describe("reception and workshop permissions", () => {
     const token = await issueToken({ userId, tenantId, branchId, permissions: [] }); const app = buildApp(prisma);
     const response = await app.inject({ method: "GET", url: "/catalog", headers: { authorization: `Bearer ${token}` } }); await app.close();
     expect(response.statusCode).toBe(200); expect(brandFind).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ tenantId }) })); expect(faultFind).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ tenantId }) }));
+  });
+});
+
+
+describe("manual WhatsApp resend", () => {
+  it("creates an explicit audited resend without changing repair state", async () => {
+    const create = vi.fn().mockResolvedValue({ id: "77777777-7777-4777-8777-777777777777" }); const audit = vi.fn();
+    const prisma = {
+      repairOrder: { findFirst: vi.fn().mockResolvedValue({ id: repairId, branchId, whatsappMessages: [{ id: "88888888-8888-4888-8888-888888888888", type: "DEVICE_RECEIVED", recipient: "+201012345678", templateKey: "device_received", variables: { customerName: "أحمد" } }] }) },
+      $transaction: vi.fn(async (callback) => callback({ whatsappMessage: { create }, auditLog: { create: audit } })),
+    } as unknown as PrismaClient;
+    const token = await issueToken({ userId, tenantId, branchId, permissions: ["whatsapp.manage"] }); const app = buildApp(prisma);
+    const response = await app.inject({ method: "POST", url: `/repairs/${repairId}/whatsapp/resend`, headers: { authorization: `Bearer ${token}` }, payload: {} }); await app.close();
+    expect(response.statusCode).toBe(200); expect(response.json()).toMatchObject({ success: true, status: "PENDING" });
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ type: "DEVICE_RECEIVED_RESEND", repairOrderId: repairId }) }));
+    expect(audit).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ action: "whatsapp.manual_resend" }) }));
   });
 });

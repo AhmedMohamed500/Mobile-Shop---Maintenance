@@ -31,6 +31,7 @@ export function registerWhatsappWebhookRoutes(app: FastifyInstance, prisma: Pris
       const when = status.timestamp ? new Date(Number(status.timestamp) * 1000) : new Date();
       const failure = status.errors?.map((item: any) => item.title ?? item.message ?? item.code).join("; ");
       await prisma.whatsappMessage.update({ where: { id: message.id }, data: eventType === "sent" ? { status: "SENT", sentAt: message.sentAt ?? when } : eventType === "delivered" ? { status: "COMPLETED", deliveredAt: when } : eventType === "read" ? { status: "COMPLETED", deliveredAt: message.deliveredAt ?? when, readAt: when } : eventType === "failed" ? { status: "FAILED", failureReason: failure || "Meta delivery failed" } : {} });
+      await prisma.auditLog.create({ data: { tenantId: message.tenantId, action: `whatsapp.webhook_${eventType}`, entityType: "whatsapp_message", entityId: message.id, after: { providerEventId, eventType } } });
     }
     return reply.send({ success: true, processed: statuses.length });
   });

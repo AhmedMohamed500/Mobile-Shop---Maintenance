@@ -1,11 +1,12 @@
 import type { FastifyInstance } from "fastify";
 import { Prisma, PrismaClient, RepairStatus, PaymentMethod } from "../../generated/client/index.js";
 import { z } from "zod";
-import { normalizePhone } from "@repair/domain";
+import { normalizePhone, normalizeWhatsappPhone } from "@repair/domain";
 import { config } from "../config.js";
 import { requireAuth, requirePermission } from "../lib/auth.js";
 import { createPublicToken, decryptUnlock, encryptUnlock, hashRequest, hashToken } from "../lib/crypto.js";
 import { approvedCharge, httpError, moneyInput, paidTotal, repairInclude, repairJson } from "./shared.js";
+import { dispatchWhatsappMessage, queueLifecycleMessage } from "../services/whatsapp-lifecycle.js";
 
 const intakeSchema = z.object({
   branchId: z.string().uuid(),
@@ -51,9 +52,10 @@ export function registerReceptionRoutes(app: FastifyInstance, prisma: PrismaClie
     const auth = await requireAuth(request); requirePermission(auth, "customer.manage");
     const body = z.object({ name: z.string().trim().min(2).max(120), phone: z.string().min(8), whatsappPhone: z.string().min(8).optional(), isRegular: z.boolean().default(false), notes: z.string().max(1000).optional() }).parse(request.body);
     const phoneNormalized = normalizePhone(body.phone);
+    const whatsappPhone = body.whatsappPhone ? normalizeWhatsappPhone(body.whatsappPhone) : (() => { try { return normalizeWhatsappPhone(body.phone); } catch { return null; } })();
     const existing = await prisma.customer.findUnique({ where: { tenantId_phoneNormalized: { tenantId: auth.tenantId, phoneNormalized } } });
     if (existing) return reply.status(200).send(existing);
-    const customer = await prisma.customer.create({ data: { tenantId: auth.tenantId, name: body.name, phoneNormalized, phoneDisplay: body.phone, whatsappPhone: body.whatsappPhone ? normalizePhone(body.whatsappPhone) : phoneNormalized, isRegular: body.isRegular, notes: body.notes } });
+    const customer = await prisma.customer.create({ data: { tenantId: auth.tenantId, name: body.name, phoneNormalized, phoneDisplay: body.phone, whatsappPhone, isRegular: body.isRegular, notes: body.notes } });
     await prisma.auditLog.create({ data: { tenantId: auth.tenantId, actorId: auth.userId, action: "customer.created", entityType: "customer", entityId: customer.id, after: { name: customer.name, phoneNormalized } } });
     return reply.status(201).send(customer);
   });
@@ -64,7 +66,7 @@ export function registerReceptionRoutes(app: FastifyInstance, prisma: PrismaClie
     const body = z.object({ name: z.string().trim().min(2).max(120).optional(), whatsappPhone: z.string().min(8).nullable().optional(), isRegular: z.boolean().optional(), notes: z.string().max(1000).nullable().optional() }).parse(request.body);
     const current = await prisma.customer.findFirst({ where: { id, tenantId: auth.tenantId } });
     if (!current) throw httpError(404, "العميل غير موجود");
-    const updated = await prisma.customer.update({ where: { id }, data: { ...body, whatsappPhone: body.whatsappPhone ? normalizePhone(body.whatsappPhone) : body.whatsappPhone } });
+    const updated = await prisma.customer.update({ where: { id }, data: { ...body, whatsappPhone: body.whatsappPhone ? normalizeWhatsappPhone(body.whatsappPhone) : body.whatsappPhone } });
     await prisma.auditLog.create({ data: { tenantId: auth.tenantId, actorId: auth.userId, action: "customer.updated", entityType: "customer", entityId: id, before: { name: current.name, isRegular: current.isRegular }, after: { name: updated.name, isRegular: updated.isRegular } } });
     return updated;
   });
@@ -136,7 +138,8 @@ export function registerReceptionRoutes(app: FastifyInstance, prisma: PrismaClie
         ]);
         if (!branch || !brand || validFaults.length !== input.faultPresetIds.length) throw httpError(422, "بيانات الفرع أو الماركة أو الأعطال غير صحيحة");
         const phoneNormalized = normalizePhone(input.customer.phone);
-        const customer = await tx.customer.upsert({ where: { tenantId_phoneNormalized: { tenantId: auth.tenantId, phoneNormalized } }, update: { name: input.customer.name, phoneDisplay: input.customer.phone, whatsappPhone: input.customer.whatsappPhone ? normalizePhone(input.customer.whatsappPhone) : phoneNormalized, isRegular: input.customer.isRegular, notes: input.customer.notes }, create: { tenantId: auth.tenantId, name: input.customer.name, phoneNormalized, phoneDisplay: input.customer.phone, whatsappPhone: input.customer.whatsappPhone ? normalizePhone(input.customer.whatsappPhone) : phoneNormalized, isRegular: input.customer.isRegular, notes: input.customer.notes } });
+        const whatsappPhone = (() => { try { return normalizeWhatsappPhone(input.customer.whatsappPhone || input.customer.phone); } catch { return null; } })();
+        const customer = await tx.customer.upsert({ where: { tenantId_phoneNormalized: { tenantId: auth.tenantId, phoneNormalized } }, update: { name: input.customer.name, phoneDisplay: input.customer.phone, whatsappPhone, isRegular: input.customer.isRegular, notes: input.customer.notes }, create: { tenantId: auth.tenantId, name: input.customer.name, phoneNormalized, phoneDisplay: input.customer.phone, whatsappPhone, isRegular: input.customer.isRegular, notes: input.customer.notes } });
         const year = new Date().getFullYear(); const last = await tx.repairOrder.findFirst({ where: { tenantId: auth.tenantId, repairNumber: { startsWith: `REP-${year}-` } }, orderBy: { repairNumber: "desc" }, select: { repairNumber: true } });
         const next = last ? Number(last.repairNumber.slice(last.repairNumber.lastIndexOf("-") + 1)) + 1 : 1; const repairNumber = `REP-${year}-${String(next).padStart(6, "0")}`;
         const repair = await tx.repairOrder.create({ data: { tenantId: auth.tenantId, branchId: branch.id, customerId: customer.id, brandId: brand.id, createdById: auth.userId, repairNumber, publicTokenHash: hashToken(publicToken), model: input.device.model, color: input.device.color, imei: input.device.imei, reportedFault: input.reportedFault, unlockKind: input.unlock?.kind, unlockCiphertext: encrypted?.ciphertext, unlockIv: encrypted?.iv, unlockAuthTag: encrypted?.authTag, estimatedCost, faults: { create: input.faultPresetIds.map((faultPresetId) => ({ faultPresetId })) }, statusHistory: { create: { toStatus: "RECEIVED", changedById: auth.userId } } } });
@@ -147,11 +150,13 @@ export function registerReceptionRoutes(app: FastifyInstance, prisma: PrismaClie
         }
         const trackingUrl = `${config.PUBLIC_TRACKING_URL}/${publicToken}`;
         await tx.printJob.createMany({ data: [{ repairOrderId: repair.id, kind: "RECEIPT", payload: { paperWidth: tenant.receiptPaperWidth, shopLogo: tenant.logoUrl, shopName: tenant.name, receiptFooter: tenant.receiptFooter, repairNumber, intakeDate: repair.createdAt, branch: branch.name, customer: customer.name, phone: customer.phoneDisplay, brand: brand.name, model: repair.model, color: repair.color, imei: repair.imei, fault: repair.reportedFault, selectedFaults: validFaults.map((fault) => fault.name), estimatedCost: Number(estimatedCost), deposit: Number(deposit), estimatedRemaining: Number(estimatedCost.minus(deposit)), qrValue: trackingUrl, trackingUrl } }, { repairOrderId: repair.id, kind: "LABEL", payload: { repairNumber, brand: brand.name, model: repair.model, customerIdentifier: customer.phoneDisplay.slice(-4), intakeDate: repair.createdAt, qrValue: trackingUrl } }] });
-        await tx.whatsappMessage.create({ data: { repairOrderId: repair.id, tenantId: auth.tenantId, branchId: branch.id, type: "DEVICE_RECEIVED", recipient: customer.whatsappPhone ?? phoneNormalized, templateKey: "device_received", variables: { customerName: customer.name, repairNumber, device: `${brand.name} ${repair.model}`, trackingUrl }, idempotencyKey: `repair:${repair.id}:received` } });
+        const queued = await queueLifecycleMessage(tx, { event: "RECEIVED", repairId: repair.id, tenantId: auth.tenantId, branchId: branch.id, phone: phoneNormalized, whatsappPhone: customer.whatsappPhone, actorId: auth.userId, customerName: customer.name, shopName: tenant.name, shopPhone: tenant.phone, branchName: branch.name, repairNumber, brand: brand.name, model: repair.model, trackingUrl, finalAmount: Number(estimatedCost), paidAmount: Number(deposit), remainingAmount: Number(estimatedCost.minus(deposit)), idempotencyKey: `repair:${repair.id}:lifecycle:RECEIVED` });
         await tx.auditLog.create({ data: { tenantId: auth.tenantId, actorId: auth.userId, action: "repair.created", entityType: "repair_order", entityId: repair.id, after: { repairNumber, branchId: branch.id, status: "RECEIVED" } } }); await tx.systemEvent.create({ data: { tenantId: auth.tenantId, branchId: branch.id, type: "repair.created", entityId: repair.id, payload: { repairNumber, status: "RECEIVED" } } });
-        return { repairId: repair.id, repairNumber, trackingUrl, printJobsQueued: 2, whatsappQueued: true };
+        return { repairId: repair.id, repairNumber, trackingUrl, printJobsQueued: 2, whatsappMessageId: queued.messageId, whatsappStatus: queued.status };
       });
-      await prisma.idempotencyKey.update({ where: { tenantId_key: { tenantId: auth.tenantId, key } }, data: { response: result } }); return reply.status(201).send(result);
+      const sent = await dispatchWhatsappMessage(prisma, result.whatsappMessageId, auth.userId).catch(() => ({ status: "PENDING" as const }));
+      const response = { ...result, whatsappStatus: sent.status, whatsappMessage: sent.status === "INVALID_PHONE" ? "رقم واتساب غير صالح؛ تم حفظ أمر الصيانة دون إرسال الرسالة" : sent.status === "FAILED" ? "تم حفظ أمر الصيانة وتعذر إرسال رسالة واتساب. يمكنك إعادة الإرسال لاحقاً" : sent.status === "PENDING" ? "تم حفظ أمر الصيانة والرسالة في انتظار إعداد واتساب" : "تم حفظ أمر الصيانة وإرسال رسالة واتساب" };
+      await prisma.idempotencyKey.update({ where: { tenantId_key: { tenantId: auth.tenantId, key } }, data: { response } }); return reply.status(201).send(response);
     } catch (error) { await prisma.idempotencyKey.deleteMany({ where: { tenantId: auth.tenantId, key, response: { equals: Prisma.JsonNull } } }); throw error; }
   });
 

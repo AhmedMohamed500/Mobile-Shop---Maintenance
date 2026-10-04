@@ -58,6 +58,14 @@ export function normalizePhone(input: string, defaultCountry = "EG"): string {
   return `+${digits}`;
 }
 
+export function normalizeWhatsappPhone(input: string): string {
+  let digits = input.replace(/\D/g, "");
+  if (digits.startsWith("0020")) digits = digits.slice(2);
+  if (/^01[0125]\d{8}$/.test(digits)) digits = `20${digits.slice(1)}`;
+  else if (/^1[0125]\d{8}$/.test(digits)) digits = `20${digits}`;
+  if (!/^20(10|11|12|15)\d{8}$/.test(digits)) throw new Error("INVALID_WHATSAPP_PHONE");
+  return `+${digits}`;
+}
 export function moneyMinorToDisplay(amountMinor: number): string {
   return new Intl.NumberFormat("ar-EG", { style: "currency", currency: "EGP" }).format(amountMinor / 100);
 }
