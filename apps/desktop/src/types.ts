@@ -14,6 +14,7 @@ export type Repair = {
   assignments: { id: string; endedAt?: string; technician: { id: string; name: string } }[];
   statusHistory: { id: string; fromStatus?: RepairStatus; toStatus: RepairStatus; reason?: string; createdAt: string }[];
   printJobs: { id: string; kind: string; status: string; createdAt: string }[];
+  whatsappMessages: { id: string; type: string; recipient: string; templateKey: string; status: string; attempts: number; failureReason?: string; sentAt?: string; deliveredAt?: string; readAt?: string; createdAt: string }[];
 };
 
 export const formatMoney = (value: number) => new Intl.NumberFormat("ar-EG", { style: "currency", currency: "EGP" }).format(value);
